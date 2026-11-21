@@ -1,0 +1,55 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Intra-turn Board</title>
+<style>
+*{box-sizing:border-box}body{margin:0;overflow:hidden;font:15px/1.6 "Hiragino Sans",sans-serif;color:#292e2b;background:#f6f6ef}main{position:fixed;inset:0;background-image:radial-gradient(#bfc4ba 1px,transparent 1px);background-size:24px 24px;touch-action:none}header{position:fixed;top:16px;left:16px;background:white;padding:8px 12px;border-radius:12px;box-shadow:0 2px 12px #0001;display:flex;align-items:center;gap:20px}button{background:#264e40;color:white;padding:7px 12px;border:0;border-radius:6px;font:inherit;cursor:pointer}button:disabled{opacity:.6}article{position:absolute;width:min(330px,90vw);background:#fff0a9;padding:16px;border-radius:4px;box-shadow:1px 5px 15px #34382420}h2{font-size:13px;margin:0 0 10px;cursor:grab;touch-action:none;color:#60562d}textarea{width:100%;font:inherit;padding:8px;background:#fff9;border:1px solid #aea36c;border-radius:4px;resize:vertical}p{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}small{display:block}#world{position:absolute;top:0;left:0}
+</style><main><div id="world"></div></main><header><strong>Intra-turn Board</strong><button id="add">付箋を追加</button></header>
+<script type="module">
+const main=document.querySelector('main'), world=document.querySelector('#world')
+const pan={x:0,y:0}
+let count=0
+function drag(handle,point,render){
+  handle.onpointerdown=e=>{
+    if(e.target!==handle || e.button!==0)return
+    handle.setPointerCapture(e.pointerId)
+    const dx=e.clientX-point.x,dy=e.clientY-point.y
+    handle.onpointermove=m=>{point.x=m.clientX-dx;point.y=m.clientY-dy;render()}
+    handle.onlostpointercapture=()=>{handle.onpointermove=null}
+  }
+}
+drag(main,pan,()=>{world.style.transform='translate('+pan.x+'px,'+pan.y+'px)';main.style.backgroundPosition=pan.x+'px '+pan.y+'px'})
+function add(){
+  const note=document.createElement('article')
+  note.innerHTML='<h2></h2><p class="topic"></p><p class="draft"></p><p class="question"></p><textarea maxlength="8000" rows="3" aria-label="テーマ" placeholder="何について考えますか？"></textarea><p class="answer"></p><p class="continuation"></p><button>書き始める</button><small role="status"></small>'
+  world.append(note)
+  const pick=s=>note.querySelector(s), field=pick('textarea'), button=pick('button'), status=pick('small')
+  const offset=count%5*18, pos={x:18+offset-pan.x,y:88+offset-pan.y}
+  const place=()=>{note.style.left=pos.x+'px';note.style.top=pos.y+'px'}
+  pick('h2').textContent='付箋 '+ ++count
+  place();drag(pick('h2'),pos,place);field.focus()
+  let data={stage:'start'}
+  button.onclick=async()=>{
+    const value=field.value.trim()
+    if(!value){field.focus();return}
+    const first=data.stage==='start'
+    button.disabled=field.disabled=true
+    status.textContent='生成中…'
+    try{
+      const input={...data,[first?'topic':'answer']:value}
+      const response=await fetch('/generate'+location.search,{method:'POST',body:JSON.stringify(input)})
+      const result=await response.json()
+      if(!response.ok)throw Error(result.error || '生成に失敗しました')
+      if(first){
+        data={stage:'finish',topic:value,draft:result.draft,question:result.question}
+        for(const key of ['topic','draft','question'])pick('.'+key).textContent=data[key]
+        field.value='';field.placeholder='問いへの答え';field.setAttribute('aria-label',result.question);button.textContent='続きを書く'
+      }else{
+        pick('.answer').textContent=value;pick('.continuation').textContent=result.continuation
+        field.hidden=button.hidden=true
+      }
+      status.textContent=(result.ms/1000).toFixed(1)+' 秒'+(result.usage?' · 入力 '+result.usage.input_tokens+' / 出力 '+result.usage.output_tokens+' トークン':'')
+    }catch(error){status.textContent=error.message}
+    finally{button.disabled=field.disabled=false;if(!field.hidden)field.focus()}
+  }
+}
+document.querySelector('#add').onclick=add
+add()
+</script></html>

@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "draft": {
+      "type": "string"
+    },
+    "question": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "draft",
+    "question"
+  ],
+  "additionalProperties": false
+}
