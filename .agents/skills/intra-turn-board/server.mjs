@@ -12,11 +12,14 @@ const schema = fileURLToPath(new URL('draft.json', import.meta.url))
 
 async function generate(data, signal) {
   const starting = data.stage === 'start'
-  const fields = starting ? ['topic'] : ['topic','draft','question','answer']
+  const fields = starting ? ['topic'] : ['topic','draft']
+  if (data.intent) fields.push('intent')
   if ((!starting && data.stage !== 'finish') || fields.some(k => typeof data[k] !== 'string' || !data[k].trim() || data[k].length > 8000)) {
     throw new Error('入力は各欄1〜8000文字です')
   }
-  const task = starting ? 'テーマについて付箋の書き出しを1〜2文書き、続きに必要な具体的な判断を一つ質問してください。' : '問いへの回答を反映し、書き出しから自然につながる続きだけを1〜3文で返してください。'
+  const task = starting
+    ? '依頼にすぐ取りかかり、判断をユーザーに委ねたい一点を文中に残してください。before と after は空欄の前後の文章、label は未決事項の短い名前、choices はそこに代入すると文が成立する短い候補を2〜4個。intent はユーザーが選んだ方向です。'
+    : 'draft はユーザーが空欄を埋めた文章です。その決定を具体化して、元の依頼への成果物を続けて短く書いてください。'
   const prompt = task + ' 日本語で返答し、ツールは使用しないでください。付箋のデータ：' + JSON.stringify(Object.fromEntries(fields.map(k => [k,data[k]])))
   const args = ['-a','never','exec','-s','read-only','fork', '--ephemeral','--json']
   if (starting) args.push('--output-schema', schema)
@@ -33,7 +36,7 @@ async function generate(data, signal) {
         const message = events.findLast(e => e.type === 'item.completed' && e.item.type === 'agent_message')?.item.text
         if (!message?.trim()) throw new Error('Codex の応答が空です')
         const value = starting ? JSON.parse(message) : { continuation:message }
-        if (starting && (!value.draft?.trim() || !value.question?.trim())) throw new Error('書き出しと問いを取得できませんでした')
+        if (starting && (!value.label?.trim() || !Array.isArray(value.choices) || value.choices.length < 2)) throw new Error('空欄の候補を取得できませんでした')
         resolve({...value, usage:events.findLast(e => e.type === 'turn.completed')?.usage})
       } catch (error) {reject(error)}
     })

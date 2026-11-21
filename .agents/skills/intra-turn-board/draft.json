@@ -1,16 +1,27 @@
 {
   "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "before",
+    "label",
+    "after",
+    "choices"
+  ],
   "properties": {
-    "draft": {
+    "before": {
       "type": "string"
     },
-    "question": {
+    "label": {
       "type": "string"
+    },
+    "after": {
+      "type": "string"
+    },
+    "choices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
-  },
-  "required": [
-    "draft",
-    "question"
-  ],
-  "additionalProperties": false
+  }
 }

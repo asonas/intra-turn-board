@@ -1,6 +1,7 @@
 <!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Intra-turn Board</title>
 <style>
 *{box-sizing:border-box}body{margin:0;overflow:hidden;font:15px/1.6 "Hiragino Sans",sans-serif;color:#292e2b;background:#f6f6ef}main{position:fixed;inset:0;background-image:radial-gradient(#bfc4ba 1px,transparent 1px);background-size:24px 24px;touch-action:none}header{position:fixed;top:16px;left:16px;background:white;padding:8px 12px;border-radius:12px;box-shadow:0 2px 12px #0001;display:flex;align-items:center;gap:20px}button{background:#264e40;color:white;padding:7px 12px;border:0;border-radius:6px;font:inherit;cursor:pointer}button:disabled{opacity:.6}article{position:absolute;width:min(330px,90vw);background:#fff0a9;padding:16px;border-radius:4px;box-shadow:1px 5px 15px #34382420}h2{font-size:13px;margin:0 0 10px;cursor:grab;touch-action:none;color:#60562d}textarea{width:100%;font:inherit;padding:8px;background:#fff9;border:1px solid #aea36c;border-radius:4px;resize:vertical}p{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}small{display:block}#world{position:absolute;top:0;left:0}
+section{border-left:3px solid #436655;padding:4px 10px;background:#fff9;margin:12px 0}section strong,.intent,small{font-size:13px}.intent{margin:6px 0 12px}.original{font-weight:600}.blank,mark{background:#dbeade;color:#244c3a}.blank{border-bottom:2px dotted;padding:0 5px}.options button{margin:3px;font-size:13px}.options input,select{max-width:100%;font:inherit}small{margin-top:6px}.continuation{white-space:pre-wrap}
 </style><main><div id="world"></div></main><header><strong>Intra-turn Board</strong><button id="add">付箋を追加</button></header>
 <script type="module">
 const main=document.querySelector('main'), world=document.querySelector('#world')
@@ -18,36 +19,87 @@ function drag(handle,point,render){
 drag(main,pan,()=>{world.style.transform='translate('+pan.x+'px,'+pan.y+'px)';main.style.backgroundPosition=pan.x+'px '+pan.y+'px'})
 function add(){
   const note=document.createElement('article')
-  note.innerHTML='<h2></h2><p class="topic"></p><p class="draft"></p><p class="question"></p><textarea maxlength="8000" rows="3" aria-label="テーマ" placeholder="何について考えますか？"></textarea><p class="answer"></p><p class="continuation"></p><button>書き始める</button><small role="status"></small>'
+  note.innerHTML='<h2></h2><textarea maxlength="8000" rows="3" aria-label="テーマ" placeholder="何について考えますか？"></textarea><div class="intent"></div><button class="start">書き始める</button><p class="original" hidden></p><section hidden><strong>Codex</strong><p class="draft"></p><div class="options" hidden></div><p class="continuation"></p></section><small role="status"></small><button class="retry" hidden>続きを再試行</button>'
   world.append(note)
-  const pick=s=>note.querySelector(s), field=pick('textarea'), button=pick('button'), status=pick('small')
+  const pick=s=>note.querySelector(s), field=pick('textarea'), start=pick('.start'), status=pick('small')
   const offset=count%5*18, pos={x:18+offset-pan.x,y:88+offset-pan.y}
   const place=()=>{note.style.left=pos.x+'px';note.style.top=pos.y+'px'}
   pick('h2').textContent='付箋 '+ ++count
   place();drag(pick('h2'),pos,place);field.focus()
-  let data={stage:'start'}
-  button.onclick=async()=>{
-    const value=field.value.trim()
-    if(!value){field.focus();return}
-    const first=data.stage==='start'
-    button.disabled=field.disabled=true
-    status.textContent='生成中…'
+  const patterns=[
+    [/名前|名付け|ネーミング/,['名前の候補を出す','名前の方向性を決める']],
+    [/旅行|旅程/,['日ごとの旅程を作る','行き先を比較する']],
+    [/アプリ|アイデア|企画/,['使う場面を考える','アイデアを広げる']]
+  ]
+  let intent, previewKey, topic
+  function preview(event){
+    if(event?.isComposing)return
+    const match=patterns.find(([re])=>re.test(field.value))
+    const key=field.value.trim() ? match?.[0].source ?? 'general' : ''
+    if(key===previewKey)return
+    previewKey=key
+    const panel=pick('.intent')
+    panel.replaceChildren()
+    intent=null
+    if(!key)return
+    const select=document.createElement('select')
+    const label=document.createElement('label')
+    label.textContent='生成の方向 '
+    const choices=match?.[1] ?? ['入力のまま','具体案を出す','考えを整理する']
+    for(const value of choices)select.add(new Option(value,value))
+    const update=()=>{intent=select.value==='入力のまま'?null:select.value}
+    update();select.onchange=update
+    label.append(select);panel.append(label)
+  }
+  field.oninput=preview;field.oncompositionend=preview
+  async function generate(data){
+    const response=await fetch('/generate'+location.search,{method:'POST',body:JSON.stringify({...data,topic,intent})})
+    const result=await response.json()
+    if(!response.ok)throw Error(result.error || '生成に失敗しました')
+    return result
+  }
+  const draft=pick('.draft'), options=pick('.options'), retry=pick('.retry')
+  async function finish(){
+    retry.hidden=true;status.textContent='Codex が続きを書いています…'
     try{
-      const input={...data,[first?'topic':'answer']:value}
-      const response=await fetch('/generate'+location.search,{method:'POST',body:JSON.stringify(input)})
-      const result=await response.json()
-      if(!response.ok)throw Error(result.error || '生成に失敗しました')
-      if(first){
-        data={stage:'finish',topic:value,draft:result.draft,question:result.question}
-        for(const key of ['topic','draft','question'])pick('.'+key).textContent=data[key]
-        field.value='';field.placeholder='問いへの答え';field.setAttribute('aria-label',result.question);button.textContent='続きを書く'
-      }else{
-        pick('.answer').textContent=value;pick('.continuation').textContent=result.continuation
-        field.hidden=button.hidden=true
+      const result=await generate({stage:'finish',draft:draft.textContent})
+      pick('.continuation').textContent=result.continuation
+      status.textContent='続きを追加しました'
+    }catch(error){status.textContent=error.message;retry.hidden=false}
+  }
+  retry.onclick=finish
+  start.onclick=async()=>{
+    topic=field.value.trim()
+    if(!topic){field.focus();return}
+    start.disabled=field.disabled=true
+    pick('.intent').inert=true
+    status.textContent='Codex が書いています…'
+    try{
+      const result=await generate({stage:'start'})
+      const original=pick('.original')
+      original.textContent=topic;original.hidden=false
+      field.hidden=start.hidden=pick('.intent').hidden=true
+      pick('section').hidden=false
+      const blank=document.createElement('button')
+      blank.textContent=result.label;blank.className='blank'
+      blank.onclick=()=>{options.hidden=!options.hidden;blank.setAttribute('aria-expanded',String(!options.hidden))}
+      blank.setAttribute('aria-expanded','false')
+      draft.append(result.before,blank,result.after)
+      function choose(value){
+        const filled=document.createElement('mark')
+        filled.textContent=value;blank.replaceWith(filled);options.hidden=true;finish()
       }
-      status.textContent=(result.ms/1000).toFixed(1)+' 秒'+(result.usage?' · 入力 '+result.usage.input_tokens+' / 出力 '+result.usage.output_tokens+' トークン':'')
-    }catch(error){status.textContent=error.message}
-    finally{button.disabled=field.disabled=false;if(!field.hidden)field.focus()}
+      for(const choice of result.choices){
+        const button=document.createElement('button')
+        button.textContent=choice;button.onclick=()=>choose(choice);options.append(button)
+      }
+      const custom=document.createElement('form'), input=document.createElement('input'), apply=document.createElement('button')
+      input.required=true;input.maxLength=500;input.placeholder='自分の言葉で';input.setAttribute('aria-label','空欄に入れる言葉')
+      apply.textContent='決定';custom.append(input,apply);options.append(custom)
+      custom.onsubmit=e=>{e.preventDefault();if(input.value.trim())choose(input.value.trim())}
+      status.textContent='下線の空欄を選んでください'
+      blank.focus({preventScroll:true})
+    }catch(error){status.textContent=error.message;start.disabled=field.disabled=false;pick('.intent').inert=false}
   }
 }
 document.querySelector('#add').onclick=add
