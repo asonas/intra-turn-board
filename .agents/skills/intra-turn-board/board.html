@@ -266,6 +266,8 @@ const optV = o => typeof o === 'string' ? o : o.v
 
 /* ============ 解釈の辞書（Feedforward） ============ */
 // words が文中に現れたら下線を引き、sections の前提を既定値つきで置く。
+// file:// の見本 (DEMO) でだけ使う。サーバーから開いたボードの下線は、Kuromoji の候補と Jev と在庫の論点で決まる
+const DEMO = location.protocol === 'file:'
 const LEXICON = [
   // 京都旅行
   { id: 'plan', words: ['計画', 'プラン', '行程'], top: true, icon: 'list', sections: [
@@ -331,6 +333,10 @@ function startKuromoji(onReady) {
 // 名詞の細分類ごとに、句の中での役割を決める表。ここに無いもの（代名詞・非自立・副詞可能など）は句を切る
 const NOUN_ROLE = { '固有名詞': 'proper', '一般': 'word', 'サ変接続': 'word', '数': 'number', '接尾': 'suffix' }
 
+// URL、パス、識別子 (https://…, anthropics/skills, post.record.langs, agent-board.md) は、AI が前提を置く語ではない。
+// Kuromoji は . / - _ : を名詞として句に含めるので、識別子は1つの句になり、表記だけで見分けられる
+const isIdentifier = s => /[/\\]/.test(s) || (/^[\x21-\x7e]+$/.test(s) && /[A-Za-z0-9][._-][A-Za-z0-9]/.test(s))
+
 // start は surface_form の長さを足して数える。word_position はコードポイント単位で、絵文字があると文字列の添字とずれる
 function extractCandidates(tokens) {
   const out = [], seen = new Set()
@@ -338,7 +344,7 @@ function extractCandidates(tokens) {
   const flush = () => {
     const surface = run.map(t => t.surface).join('')
     const words = run.filter(t => t.role === 'proper' || t.role === 'word')
-    if (words.length && surface.length >= 2 && !seen.has(surface)) {
+    if (words.length && surface.length >= 2 && !seen.has(surface) && !isIdentifier(surface)) {
       seen.add(surface)
       const start = run[0].start
       out.push({ surface, start, end: start + surface.length, kind: words.some(t => t.role === 'proper') ? 'proper' : words.length > 1 ? 'compound' : 'noun' })
@@ -399,16 +405,16 @@ function inventoryEntry(item, index) {
 const isDecided = (note, sec) => note.decisions[sec.key] !== undefined
 
 /* ============ 前提の解析（Feedforward） ============
-   入力中の文から、前提を置く語を見つけて下線を引く。LEXICON の語を先に取り、空いている分を Kuromoji の候補で埋める。
+   入力中の文から、前提を置く語を見つけて下線を引く。見本 (DEMO) では LEXICON の語を先に取り、空いている分を Kuromoji の候補で埋める。
    候補の選び方は2つ。ローカルの規則 (pickByRule) と、サーバーの /judge が返す値による選び方 (selectJudged、下の「下線の判定」)。
-   規則は、答えが届くまでと、答えの無い環境 (file://、キーが無い、失敗) で使う。どちらも、LEXICON の語と合わせて上限まで。
+   規則は、答えが届くまでと、答えの無い環境 (file://、キーが無い、失敗) で使う。規則の上限は、LEXICON の語と合わせて MAX_ASSUMPTIONS。
    候補が在庫の論点に当たれば、一般的な問いの代わりに在庫の問いを開く。LEXICON の語は在庫に置き換えない */
 const MAX_ASSUMPTIONS = 3
 
-// 本文から決まる材料。LEXICON の語 (hits)、それと重ならない Kuromoji の候補 (rank 順)、各候補が当たる在庫の論点 (-1 は無し)
+// 本文から決まる材料。LEXICON の語 (hits。DEMO のときだけ)、それと重ならない Kuromoji の候補 (rank 順)、各候補が当たる在庫の論点 (-1 は無し)
 function scan(text) {
   const hits = []
-  for (const e of LEXICON) {
+  for (const e of DEMO ? LEXICON : []) {
     let best = null
     for (const w of e.words) { const i = text.indexOf(w); if (i >= 0 && (!best || i < best.start)) best = { start: i, end: i + w.length } }
     if (best) hits.push({ ...best, entry: e })
@@ -439,57 +445,49 @@ const analyze = (text, sc = scan(text)) => arrange(sc, pickByRule(sc))
 
 /* ============ 下線の判定（Jev） ============
    Kuromoji の候補ごとに「書かれていない前提を AI が置く必要があるか」の値 (0..1) を、サーバーの /judge から非同期に受け取り、
-   値の高い語を下線にする (規則に代わる選び方)。LEXICON の語は聞かず、先に枠を取る。
-   Jev は同じ付箋でも値が揺れ、下線の集合が変わる (計測で20件中12件)。入力のたびに下線が出入りしないよう、次の3つで揺れを受けない。
+   値の高い語を下線にする (規則に代わる選び方)。
+   実際の会話の付箋では、値は架空の付箋よりずっと低く、0.7 以上はほとんど出ないが、付箋の中での順位は当てになる。
+   そこで値の大きさではなく順位で選ぶ。上位3語で、値が 0.3 以上のもの。在庫の論点に当たる語は、値に関わらず先に下線にする。
+   聞くのは、節が閉じたとき (。、！？や改行で終わる) と、手が止まったとき。書いている途中の節を判定すると、その下線の多くが節が終わると消える。
+   値は付箋ぜんたいについて1回ごとに入れ替える (閉じた文の値は固定しない。あとの節で順位が変わるため、固定すると古い値が残る)。
+   Jev は同じ付箋でも値が揺れ、下線の集合が変わる (計測で20件中12件)。出入りしないよう、次の2つで揺れを受けない。
    (a) 本文が同じなら聞き直さず、前の答えを使う。
-   (b) 下線の語は 0.6 を割るまで残し、新しい語は 0.7 以上で入れる。
-   (c) 文として閉じた (。！？!? か改行で終わる) 文の候補は、その文の候補の集合が変わるまで、最初に付いた値のままにする。
+   (b) 下線の語は、4位以内で 0.25 以上なら残し、新しい語は3位以内で 0.3 以上のときに入れる。
    答えを待つ間も、下線にした語は残す。規則に戻るのは、1回目の答えが届くまでと、失敗したときだけ。 */
-const JUDGE = { enter: 0.7, stay: 0.6, cap: 5, cacheSize: 64, candidates: 30, text: 8000 }   // candidates と text は、server.mjs の judge.mjs の LIMITS と同じ
-let judgeOn = location.protocol !== 'file:'   // file:// の見本にはサーバーが無い。キーの無いサーバー (503) だと、そのページでは聞かない
+const JUDGE = {
+  enter: 0.3, stay: 0.25, top: 3, keep: 4, cap: 5,   // 選び方。top は値で選ぶ語の数 (在庫の語は数えない)、cap は在庫の語と合わせた上限
+  // 句の途中で息をつく程度の間 (1秒未満) では聞かず、手が止まったと言える長さ。短いと途中の節を判定してしまう。
+  // 長いほど、読点や句点を打たない文の下線が遅れる
+  idle: 1200,
+  cacheSize: 64, candidates: 30, text: 8000,   // candidates と text は、server.mjs の judge.mjs の LIMITS と同じ
+}
+let judgeOn = !DEMO   // file:// の見本にはサーバーが無い。キーの無いサーバー (503) だと、そのページでは聞かない
 
 // 付箋1枚ぶんの判定の状態。判定に関わる状態はここに集める
 //   rev     本文の版。入力のたびに増える。問い合わせに付けて、古い答えを捨てるのに使う
 //   ready   1回目の答えを使い始めたか。false の間は規則で選ぶ
+//   due     いまの本文を聞いてよいか。節が閉じた、手が止まった、書き込まれた本文 (例文)、のどれか。入力のたびに決め直す
+//   idle    手が止まったかを数えるタイマー
 //   cache   本文 → { 語 → 値 }。(a)
-//   frozen  閉じた文の番号 → { sig: 候補の集合, values }。(c)
-//   shown   いま下線にしている語 → 値。(b)
+//   shown   いま下線にしている値の語 → 値。(b)。答えを待つ間は、この値で選び直す
 //   flight  問い合わせ中の { rev, abort }
 //   failed  失敗した本文。同じ本文で聞き直さない
-const newJudged = () => ({ rev: 0, ready: false, cache: new Map(), frozen: new Map(), shown: new Map(), flight: null, failed: null })
+const newJudged = () => ({ rev: 0, ready: false, due: false, idle: null, cache: new Map(), shown: new Map(), flight: null, failed: null })
 
-const SENTENCE = /([^。！？!?\n]*(?:[。！？!?]+[」』）)]*|\n))|[^。！？!?\n]+$/g
-function sentencesOf(text) {
-  return [...text.matchAll(SENTENCE)].map(m => ({ start: m.index, end: m.index + m[0].length, finished: m[1] !== undefined }))
-}
+// 節が閉じたか。本文の末尾が句点・読点・感嘆符・疑問符 (閉じかっこが続いてもよい) か、改行
+const CLOSED = /(?:[。．！？!?、，,][」』）)]*|\n)\s*$/
+const closes = text => CLOSED.test(text)
 
-// 候補ごとの値を決める。fresh は本文に対する答え (待っている間は null)。閉じた文は、frozen にある値を優先し、無ければ fresh の値を frozen にする。
-// 閉じていない最後の文は fresh の値。返す frozen は、いま閉じている文のぶんだけ
-function settle(text, candidates, frozen, fresh) {
-  const values = new Map(), next = new Map()
-  sentencesOf(text).forEach((s, k) => {
-    const mine = candidates.filter(c => c.start >= s.start && c.start < s.end)
-    const judged = new Map(mine.filter(c => fresh?.has(c.surface)).map(c => [c.surface, fresh.get(c.surface)]))
-    if (!s.finished) { for (const [surface, v] of judged) values.set(surface, v); return }
-    const sig = JSON.stringify(mine.map(c => c.surface).sort())
-    const own = frozen.get(k)?.sig === sig ? frozen.get(k).values : fresh ? judged : null
-    if (!own) return
-    next.set(k, { sig, values: own })
-    for (const [surface, v] of own) values.set(surface, v)
-  })
-  return { values, frozen: next }
-}
-
-// 下線にする語を選ぶ。値の無い語 (答えを待っている) は、いま下線ならそのまま残す。
-// 在庫の論点に当たる語を先に、あとは値の高い順に、LEXICON の残りの枠まで。候補どうしは重ならない (Kuromoji の連なりは別々で、LEXICON と重なる候補は scan が外す)
+// 下線にする語を選ぶ。純関数。values は語 → 値 (答えを待つ間は shown)、shown はいま下線の値の語。
+// 在庫の論点に当たる語は値が無くても先に。残りは値の高い順 (同じなら先の語) に並べて、
+// 入るのは3位以内で 0.3 以上、いま下線の語は4位以内で 0.25 以上。そこから上位3語まで (新しい語が来ると、いちばん低い語が外れる)。合計は cap まで
 function selectJudged(sc, values, shown) {
-  const eligible = []
-  sc.candidates.forEach((c, i) => {
-    const on = shown.has(c.surface), value = values.get(c.surface) ?? shown.get(c.surface)
-    if (value !== undefined && (value >= JUDGE.enter || (on && value >= JUDGE.stay))) eligible.push({ c, item: sc.matched[i], value })
-  })
-  eligible.sort((a, b) => (b.item >= 0) - (a.item >= 0) || b.value - a.value || a.c.start - b.c.start)
-  return eligible.slice(0, Math.max(0, JUDGE.cap - sc.hits.length))
+  const rows = sc.candidates.map((c, i) => ({ c, item: sc.matched[i], value: values.get(c.surface) }))
+  const order = (a, b) => (b.value ?? -1) - (a.value ?? -1) || a.c.start - b.c.start
+  const open = rows.filter(r => r.item >= 0).sort(order).slice(0, JUDGE.cap)
+  const judged = rows.filter(r => r.item < 0 && r.value !== undefined).sort(order)
+    .filter((r, rank) => shown.has(r.c.surface) ? rank < JUDGE.keep && r.value >= JUDGE.stay : rank < JUDGE.top && r.value >= JUDGE.enter)
+  return [...open, ...judged.slice(0, Math.min(JUDGE.top, JUDGE.cap - open.length))]
 }
 
 function remember(cache, text, values) {
@@ -504,8 +502,19 @@ function abortJudge(note) {
 function fallBack(note) {
   const j = note.judged
   if (!j.ready) return
-  Object.assign(j, { ready: false, frozen: new Map(), shown: new Map() })
+  Object.assign(j, { ready: false, shown: new Map() })
   refreshLater.add(note); flushRefresh()
+}
+// 入力が確定したとき (変換中でないとき) に呼ぶ。節が閉じていれば、次の解析で聞く。閉じていなくても、手が止まったら聞く
+function afterEdit(note) {
+  const j = note.judged
+  j.due = closes(note.ta.value)
+  clearTimeout(j.idle)
+  j.idle = setTimeout(() => {
+    j.due = true
+    const text = note.ta.value
+    askJudge(note, text, scan(text).candidates)
+  }, JUDGE.idle)
 }
 // 答えは cache に入れ、描き直しは analyzeNote に任せる。そうすれば、答えが届いても、ポップオーバーを開いている付箋は閉じるまで待つ (refreshLater)
 function askJudge(note, text, candidates) {
@@ -741,7 +750,7 @@ async function remoteCompose(text, decisions, quote, assumptions) {
 }
 
 // 生成元を選ぶのはここだけ。UI は compose の返す plan しか知らない
-const adapter = { analyze, compose: location.protocol === 'file:' ? demoCompose : remoteCompose }
+const adapter = { analyze, compose: DEMO ? demoCompose : remoteCompose }
 
 /* ============ ボード ============ */
 const viewport = $('#viewport'), world = $('#world'), linksSvg = $('#links')
@@ -1054,17 +1063,19 @@ function createNote({ x, y, text = '', quote = null }) {
   draggable(note, t => t.classList.contains('grip') || t === note.el || (t.classList.contains('foot')))
 
   let timer
+  const j = note.judged
   const grow = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
   ta.addEventListener('input', e => {
-    note.judged.rev++   // 変換中の入力も数える。変換の前の本文への答えを、変換の途中で使わないため
+    j.rev++   // 変換中の入力も数える。変換の前の本文への答えを、変換の途中で使わないため
     grow(); send.disabled = !ta.value.trim()
     // 変換中は下線の位置がずれるので隠し、確定してから解析する
     mirror.classList.add('stale')
-    if (e.isComposing) return
+    if (e.isComposing) { clearTimeout(j.idle); j.due = false; return }
     clearTimeout(timer); timer = setTimeout(() => analyzeNote(note), 260)
+    afterEdit(note)
   })
-  ta.addEventListener('compositionstart', () => { note.composing = true; mirror.classList.add('stale') })
-  ta.addEventListener('compositionend', () => { note.composing = false; clearTimeout(timer); timer = setTimeout(() => analyzeNote(note), 120) })
+  ta.addEventListener('compositionstart', () => { note.composing = true; clearTimeout(j.idle); j.due = false; mirror.classList.add('stale') })
+  ta.addEventListener('compositionend', () => { note.composing = false; clearTimeout(timer); timer = setTimeout(() => analyzeNote(note), 120); afterEdit(note) })
   ta.addEventListener('click', () => {
     if (note.sent || ta.selectionStart !== ta.selectionEnd) return
     const pos = ta.selectionStart
@@ -1075,6 +1086,7 @@ function createNote({ x, y, text = '', quote = null }) {
   })
   ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendNote(note) } })
   send.onclick = () => sendNote(note)
+  j.due = !!text.trim()   // 書き込まれた本文 (例文) は、もう書き終わっている
   requestAnimationFrame(() => { grow(); send.disabled = !ta.value.trim(); if (text) analyzeNote(note) })
   return note
 }
@@ -1083,20 +1095,20 @@ function openNotePop(note, anchor, sections) {
     note.decisions[k] = v; note.touched.add(k); renderMirror(note); renderAssume(note)
   }, note)
 }
-// ask が false のときは、判定を新しく聞かない (送る直前の描き直し)
+// ask が false のときは、判定を新しく聞かない (送る直前の描き直し)。true でも、聞くのは本文が聞いてよい状態 (due) のときだけ
 function analyzeNote(note, { ask = true } = {}) {
   const text = note.ta.value, j = note.judged, sc = scan(text)
   const fresh = j.cache.get(text) ?? null
   if (fresh) j.ready = true
   if (j.ready) {
-    const { values, frozen } = settle(text, sc.candidates, j.frozen, fresh)
-    const chosen = selectJudged(sc, values, j.shown)
-    j.frozen = frozen; j.shown = new Map(chosen.map(({ c, value }) => [c.surface, value]))
+    // 答えは、その本文のぶんをそのまま使う。まだ答えの無い本文は、いま下線の語の値で選び直す
+    const chosen = selectJudged(sc, fresh ?? j.shown, j.shown)
+    j.shown = new Map(chosen.filter(x => x.item < 0).map(({ c, value }) => [c.surface, value]))
     note.matches = arrange(sc, chosen)
   } else note.matches = adapter.analyze(text, sc)
   for (const s of allSections(note)) if (s.def !== undefined && !(s.key in note.decisions)) note.decisions[s.key] = s.def
   renderMirror(note); renderAssume(note)
-  if (ask) askJudge(note, text, sc.candidates)
+  if (ask && j.due) askJudge(note, text, sc.candidates)
 }
 const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
 function renderMirror(note) {
@@ -1127,7 +1139,7 @@ function setNoteStatus(note, kind, text) { note.status.className = 'status ' + k
 
 function sendNote(note) {
   if (note.sent || !note.ta.value.trim()) return
-  analyzeNote(note, { ask: false }); abortJudge(note)
+  analyzeNote(note, { ask: false }); abortJudge(note); clearTimeout(note.judged.idle)
   note.sent = true; note.ta.readOnly = true; note.el.classList.add('sent'); note.assume.hidden = true
   closePop()
   setNoteStatus(note, 'thinking', '考えています')
@@ -1394,7 +1406,7 @@ async function pollInventory() {
     return
   }
 }
-if (location.protocol !== 'file:') pollInventory()
+if (!DEMO) pollInventory()
 
 createNote({ x: Math.max(40, innerWidth * 0.08), y: 120, text: EXAMPLES.travel })
 const empty = createNote({ x: Math.max(40, innerWidth * 0.08), y: 400 })
