@@ -20,20 +20,31 @@ Without the TypeSafe key the board still works, but it picks underlines with a s
 
 ## Install
 
-Clone the repository, then link the skill into the skills folder of the agent you use.
+Install the skill with the [skills](https://github.com/vercel-labs/skills) CLI. `-g` makes it available in every project.
+
+```sh
+# Claude Code
+npx skills add asonas/intra-turn-board -g -a claude-code
+
+# Codex
+npx skills add asonas/intra-turn-board -g -a codex
+```
+
+Installed skills do not update themselves. To get a new version, run:
+
+```sh
+npx skills check    # see whether an update is available
+npx skills update -g
+```
+
+If you want to change the skill yourself, clone the repository and link it instead. Then `git pull` updates it.
 
 ```sh
 git clone https://github.com/asonas/intra-turn-board.git
 cd intra-turn-board
-
-# Claude Code
-ln -s "$PWD/.agents/skills/intra-turn-board" ~/.claude/skills/intra-turn-board
-
-# Codex
-ln -s "$PWD/.agents/skills/intra-turn-board" ~/.codex/skills/intra-turn-board
+ln -s "$PWD/.agents/skills/intra-turn-board" ~/.claude/skills/intra-turn-board   # Claude Code
+ln -s "$PWD/.agents/skills/intra-turn-board" ~/.codex/skills/intra-turn-board    # Codex
 ```
-
-Linking (instead of copying) keeps the skill up to date when you `git pull`.
 
 ## Store the TypeSafe API key
 

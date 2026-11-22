@@ -20,20 +20,31 @@ TypeSafe の API キーが無くてもボードは動きます。ただし下線
 
 ## インストール
 
-リポジトリを clone し、使うエージェントのスキルのフォルダにリンクを張ります。
+[skills](https://github.com/vercel-labs/skills) の CLI でインストールします。`-g` を付けると、すべてのプロジェクトで使えるようになります。
+
+```sh
+# Claude Code
+npx skills add asonas/intra-turn-board -g -a claude-code
+
+# Codex
+npx skills add asonas/intra-turn-board -g -a codex
+```
+
+インストールしたスキルは自動では更新されません。新しい版にするときは、次を実行します。
+
+```sh
+npx skills check    # 更新があるかを確かめる
+npx skills update -g
+```
+
+スキルを自分で書き換えたいときは、リポジトリを clone してリンクを張ります。この場合は `git pull` で新しくなります。
 
 ```sh
 git clone https://github.com/asonas/intra-turn-board.git
 cd intra-turn-board
-
-# Claude Code
-ln -s "$PWD/.agents/skills/intra-turn-board" ~/.claude/skills/intra-turn-board
-
-# Codex
-ln -s "$PWD/.agents/skills/intra-turn-board" ~/.codex/skills/intra-turn-board
+ln -s "$PWD/.agents/skills/intra-turn-board" ~/.claude/skills/intra-turn-board   # Claude Code
+ln -s "$PWD/.agents/skills/intra-turn-board" ~/.codex/skills/intra-turn-board    # Codex
 ```
-
-コピーではなくリンクにしておくと、`git pull` するだけでスキルが新しくなります。
 
 ## TypeSafe の API キーを保管する
 
