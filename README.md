@@ -62,7 +62,7 @@ On the board:
 4. Fill the blanks in the reply. The AI continues once all of them are filled.
 5. Select a passage in a reply to ask a follow-up about it.
 
-When you are done, press the 「まとめて終える」 (wrap up) button in the header. The AI summarizes the board (what was decided, what is still open, next steps, and the key points of each note) into a Markdown file under `intra-turn-board/` in your working directory, and the board closes. In Claude Code the agent is notified, reads the summary and continues the conversation from it. In Codex, mention it in your next message and the agent reads the latest summary.
+When you are done, press the 「まとめて終える」 (wrap up) button in the header. The AI summarizes the board (what was decided, what is still open, next steps, and the key points of each note) into a Markdown file under `intra-turn-board/` in your working directory (the folder ignores itself in git), and the board closes. In Claude Code the agent is notified, reads the summary and continues the conversation from it. In Codex, mention it in your next message and the agent reads the latest summary.
 
 Drag the background to move around. The board itself is not saved; closing or reloading the page clears it, so wrap up before you leave if you want to keep the result.
 

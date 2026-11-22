@@ -324,6 +324,8 @@ async function saveSummary({ title, markdown }) {
   const dir = join(process.cwd(), 'intra-turn-board'), base = summaryName(new Date(), title)
   try {
     await mkdir(dir, { recursive: true })
+    // フォルダ自身に * の .gitignore を置き、呼び出し元のリポジトリの .gitignore は書き換えずに、まとめを git の対象から外す
+    try { await writeFile(join(dir, '.gitignore'), '*\n', { flag: 'wx' }) } catch (error) { if (error.code !== 'EEXIST') throw error }
     for (let n = 1; n < 100; n++) {
       const path = join(dir, `${base}${n > 1 ? `-${n}` : ''}.md`)
       // wx は、同じ名前があれば失敗する。確かめてから書くのではなく、書くのと同時に確かめる
