@@ -1,0 +1,1376 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Intra-turn Canvas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  color-scheme:light;
+  --bg:#f6f6f7; --dot:#00000014;
+  --surface:#ffffff; --surface-2:#f2f2f4; --surface-3:#e8e8eb;
+  --line:#00000017; --line-strong:#00000026;
+  --ink:#1a1a1e; --sub:#5c5d65; --faint:#9a9ba3;
+  --accent:#3a5bd9; --accent-soft:#3a5bd914; --accent-line:#3a5bd966;
+  --send-bg:#1a1a1e; --send-ink:#ffffff; --send-off:#e6e6e9; --send-off-ink:#a6a7ae;
+  --link:#00000038; --hl:#3a5bd91c; --hl-pick:#3a5bd930;
+  --danger:#c2410c;
+  --shadow:0 1px 2px #0000000a,0 6px 20px #0000000d;
+  --shadow-pop:0 2px 6px #00000010,0 18px 48px #0000001c;
+  --font:"Inter","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    color-scheme:dark;
+    --bg:#131315; --dot:#ffffff12;
+    --surface:#1b1b1e; --surface-2:#242428; --surface-3:#2e2e33;
+    --line:#ffffff0f; --line-strong:#ffffff1c;
+    --ink:#ececef; --sub:#a1a1a9; --faint:#6d6d76;
+    --accent:#7c97ff; --accent-soft:#7c97ff1a; --accent-line:#7c97ff70;
+    --send-bg:#ececef; --send-ink:#131315; --send-off:#2e2e33; --send-off-ink:#6d6d76;
+    --link:#ffffff2e; --hl:#7c97ff24; --hl-pick:#7c97ff3d;
+    --danger:#f0835a;
+    --shadow:0 1px 2px #00000040,0 8px 28px #00000050;
+    --shadow-pop:0 2px 6px #00000050,0 18px 48px #00000080;
+  }
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;overflow:hidden;font:14px/1.7 var(--font);color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+.ic{display:inline-flex;align-items:center;justify-content:center;flex:none}
+
+/* canvas */
+#viewport{position:fixed;inset:0;touch-action:none}
+#dots{position:absolute;inset:0;background-image:radial-gradient(var(--dot) 1px,transparent 1.2px);background-size:24px 24px;pointer-events:none;transition:opacity .7s ease}
+body.hero #dots{opacity:0}
+#viewport.panning{cursor:grabbing}
+#world{position:absolute;left:0;top:0;width:0;height:0;transform-origin:0 0}
+#links{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
+#links path{fill:none;stroke:var(--link);stroke-width:1.25;transition:stroke .3s}
+#links path.live{stroke:var(--accent-line)}
+#links circle{fill:var(--link)}
+#links circle.live{fill:var(--accent-line)}
+
+/* hero (empty state) */
+#hero{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px 16px 14vh;z-index:10;pointer-events:none}
+#hero>*{pointer-events:auto}
+.suggest{display:flex;gap:6px;margin-top:14px;flex-wrap:wrap;justify-content:center;transition:opacity .2s}
+.suggest button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:4px 12px;font-size:13px;color:var(--sub)}
+.suggest button:hover{color:var(--ink);background:var(--surface-2)}
+body:not(.hero) #hero>*{pointer-events:none}
+body:not(.hero) .suggest{opacity:0}
+
+/* composer */
+.composer{position:relative;display:grid;grid-template-columns:auto 1fr auto auto;grid-template-areas:"atts atts atts atts" "field field field field" "attach . pill send";align-items:center;background:var(--surface-2);border-radius:12px;transition:box-shadow .15s}
+.composer.compact{grid-template-areas:"atts atts atts atts" "attach field pill send";align-items:end;padding:5px;column-gap:2px;--fs:14px;--lh:1.65}
+.composer.hero{width:min(640px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--line-strong);border-radius:22px;padding:14px 10px 10px 18px;box-shadow:var(--shadow);--fs:16px;--lh:1.7}
+.composer.over{box-shadow:0 0 0 2px var(--accent-line)}
+.composer .tools{display:contents}
+.composer .main{grid-area:field;min-width:0}
+.composer.compact .main{padding:3px 4px}
+.composer.hero .main{padding:2px 8px 10px 0;min-height:64px}
+.composer .attach{grid-area:attach}
+.composer .pillbtn{grid-area:pill}
+.composer .send{grid-area:send}
+.composer.hero .attach{margin-left:-8px}
+.atts{grid-area:atts;display:flex;gap:6px;padding:2px 0 8px}
+.compact .atts{padding:2px 2px 6px}
+.att{position:relative;width:44px;height:44px;border-radius:8px;overflow:hidden;box-shadow:inset 0 0 0 1px var(--line);background:var(--surface-3)}
+.att img{width:100%;height:100%;object-fit:cover;display:block}
+.att button{position:absolute;top:3px;right:3px;width:16px;height:16px;border-radius:50%;border:0;padding:0;background:#000000a0;color:#fff;display:flex;align-items:center;justify-content:center}
+.field{position:relative}
+.field .mirror,.field textarea{font:inherit;font-size:var(--fs);line-height:var(--lh);letter-spacing:normal;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;padding:0;margin:0;border:0}
+.field .mirror{position:absolute;inset:0;color:transparent;pointer-events:none;overflow:hidden;transition:opacity .15s}
+.field .mirror.stale{opacity:0}
+.field .kw{border-radius:3px;background:var(--accent-soft);text-decoration:underline dotted var(--accent);text-decoration-thickness:1.5px;text-underline-offset:5px}
+.field .kw.set{text-decoration-style:solid}
+.field textarea{position:relative;display:block;width:100%;background:transparent;resize:none;outline:none;overflow:hidden;color:var(--ink);caret-color:var(--accent)}
+.field textarea::placeholder{color:var(--faint)}
+.ib{width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--faint);display:inline-flex;align-items:center;justify-content:center;padding:0}
+.ib:hover{background:var(--surface-3);color:var(--ink)}
+.hero .ib{width:32px;height:32px;border-radius:10px}
+.send{width:28px;height:28px;border-radius:50%;border:0;padding:0;background:var(--send-bg);color:var(--send-ink);display:inline-flex;align-items:center;justify-content:center;transition:background .15s,color .15s}
+.send:disabled{background:var(--send-off);color:var(--send-off-ink);cursor:default}
+.hero .send{width:32px;height:32px}
+.pillbtn{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;border-radius:8px;height:28px;padding:0 6px 0 8px;font-size:12.5px;color:var(--sub);margin-right:4px;max-width:240px;white-space:nowrap}
+.pillbtn .v{overflow:hidden;text-overflow:ellipsis}
+.pillbtn .chev{color:var(--faint)}
+.pillbtn:hover{background:var(--surface-3);color:var(--ink)}
+.hero .pillbtn{height:32px}
+
+/* block */
+.block{position:absolute;left:0;top:0;width:460px;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px 14px 12px;outline:2px solid transparent;outline-offset:3px;transition:background-color .3s,border-color .3s,box-shadow .3s}
+.block.draft{width:400px;background:transparent;border-color:transparent;box-shadow:none;padding:0}
+.block.nested{width:420px}
+.block.draft .composer{background:var(--surface);box-shadow:0 0 0 1px var(--line-strong),var(--shadow)}
+.block .composer{margin-top:14px}
+.block.draft .composer{margin-top:0}
+.block.fresh{animation:ring 1.6s ease-out}
+.quoteline{font-size:12.5px;line-height:1.6;color:var(--sub);border-left:2px solid var(--accent-line);padding:0 0 0 10px;margin:2px 4px 12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.msg+.msg{margin-top:16px}
+.msg{animation:rise .28s ease-out both}
+.msg.user{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.bubble{max-width:85%;background:var(--surface-2);border-radius:12px;padding:5px 12px;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.ai{padding:0 4px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.assumed{list-style:none;margin:0 0 8px;padding:0;font-size:12.5px;line-height:1.8;color:var(--faint);display:flex;flex-wrap:wrap;gap:0 14px}
+.assumed li{display:inline-flex;gap:5px;align-items:center}
+.assumed b{font-weight:500;color:var(--sub)}
+.text p{margin:0 0 8px}
+.text h3{font-size:14px;font-weight:600;margin:12px 0 2px}
+.text h3:first-child{margin-top:0}
+.text ul{margin:0 0 8px;padding-left:1.15em}
+.text li{margin:1px 0}
+.text li::marker{color:var(--faint)}
+.text blockquote{margin:4px 0 8px;padding:6px 12px;background:var(--surface-2);border-radius:8px}
+.text pre{margin:4px 0 8px;padding:8px 10px;background:var(--surface-2);border-radius:8px;font:12px/1.6 var(--mono);overflow:auto}
+.text>:last-child{margin-bottom:0}
+.text:empty{display:none}
+.text.more:not(:empty){margin-top:8px}
+.text>*{animation:fadein .25s ease-out}
+.status{font-size:12.5px;color:var(--faint);display:flex;align-items:center;gap:6px;min-height:0}
+.status:not(:empty){margin-top:6px}
+.status.needs{color:var(--accent)}
+.status.failed{color:var(--danger)}
+.status .retry{border:1px solid currentColor;background:transparent;border-radius:999px;padding:0 10px;font-size:12px;line-height:20px;color:inherit}
+.shimmer{background:linear-gradient(90deg,var(--faint) 0%,var(--faint) 35%,var(--ink) 50%,var(--faint) 65%,var(--faint) 100%);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 1.8s linear infinite}
+.status .spark{color:var(--faint)}
+.blank{border:0;background:var(--accent-soft);border-radius:4px;padding:0 5px;margin:0 1px;font:inherit;color:var(--accent);box-shadow:inset 0 -1.5px 0 var(--accent-line);animation:blankin .5s ease-out}
+.blank:hover{background:var(--hl-pick)}
+.blank.filled{background:transparent;color:var(--ink);padding:0;margin:0;box-shadow:inset 0 -1.5px 0 var(--accent)}
+.ref{text-decoration:underline solid var(--accent-line);text-decoration-thickness:1.5px;text-underline-offset:4px}
+.chipline{margin:4px 0 8px}
+.sidechip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-strong);background:transparent;border-radius:8px;padding:1px 9px 1px 7px;font-size:12.5px;line-height:1.7;color:var(--sub);vertical-align:middle}
+.sidechip:hover{color:var(--ink);background:var(--surface-2)}
+.sidechip.pending .ic{animation:blink 1.1s infinite}
+.sidechip.error{color:var(--danger)}
+
+/* side block */
+.side{position:absolute;left:0;top:0;width:max-content;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px;max-width:560px;outline:2px solid transparent;outline-offset:3px;animation:sidein .32s cubic-bezier(.2,.8,.2,1) both;
+  --pele-bg:var(--surface);--pele-fg:var(--ink);--pele-muted:var(--sub);--pele-line:var(--sub);--pele-surface:var(--surface-2);--pele-surface-alt:var(--surface-3);--pele-border:var(--line-strong);--pele-accent:var(--accent);--pele-radius:8px}
+.side.image{padding:6px}
+.side.fresh{animation:ring 1.4s ease-out}
+.side .src{margin:0;font:12px/1.65 var(--mono);color:var(--faint);white-space:pre;min-width:200px}
+.side .dia{animation:fadein .3s ease-out;transition:opacity .2s}
+.side .dia svg{display:block}
+.side.stale .dia{opacity:.35}
+.side .err{display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:1.6;color:var(--danger);margin:0 0 8px;max-width:420px}
+.side .err .ic{margin-top:3px}
+.side pre.code{margin:0;padding:10px 12px;overflow:auto;background:var(--surface-2);border-radius:8px;font:12px/1.65 var(--mono);color:var(--ink);white-space:pre}
+.side img{display:block;max-width:340px;max-height:320px;border-radius:9px;animation:fadein .3s ease-out}
+.side .ph{width:340px;height:204px;border-radius:9px;background:linear-gradient(90deg,var(--surface-2) 0,var(--surface-3) 40%,var(--surface-2) 80%);background-size:300% 100%;animation:shimmer 1.4s linear infinite}
+
+/* popover */
+#pop{position:fixed;z-index:40;background:var(--surface);border:1px solid var(--line-strong);border-radius:12px;box-shadow:var(--shadow-pop);padding:10px;min-width:220px;max-width:340px;animation:popin .14s ease-out;transform-origin:top left}
+#pop section+section{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+#pop .q{display:flex;align-items:baseline;gap:6px;font-size:12.5px;color:var(--sub);margin:0 4px 6px}
+#pop .q .hint{color:var(--faint)}
+#pop .q .now{margin-left:auto;font-weight:600;color:var(--ink)}
+.opts{display:flex;flex-direction:column;gap:1px}
+.opt{display:flex;align-items:center;justify-content:space-between;gap:16px;border:0;background:none;text-align:left;padding:5px 8px;border-radius:8px;font-size:13.5px}
+.opt:hover{background:var(--surface-2)}
+.opt .ic{color:var(--accent)}
+.chipset{display:flex;flex-wrap:wrap;gap:6px;padding:0 2px}
+.chip{border:1px solid var(--line-strong);background:transparent;border-radius:999px;padding:2px 11px;font-size:13px;color:var(--ink)}
+.chip:hover{background:var(--surface-2)}
+.chip.on{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.other{display:inline-flex;align-items:center;gap:4px;border:0;background:transparent;border-radius:8px;padding:4px 8px;font-size:12.5px;color:var(--faint);margin-top:6px}
+.other:hover{color:var(--ink);background:var(--surface-2)}
+.other-input{margin-top:6px;width:100%;font:inherit;font-size:13px;border:1px solid var(--line-strong);background:var(--surface-2);color:var(--ink);border-radius:8px;padding:5px 10px;outline:none}
+.other-input:focus{border-color:var(--accent)}
+.map{position:relative;height:170px;width:280px;border-radius:10px;background-color:var(--surface-2);background-image:radial-gradient(var(--dot) 1px,transparent 1.2px);background-size:10px 10px}
+.map .chip{position:absolute;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;background:var(--surface)}
+.map .chip.on{background:var(--ink)}
+.map .chip::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+.range{position:relative;height:28px;margin:0 10px;width:240px;touch-action:none}
+.range .track{position:absolute;left:0;right:0;top:12px;height:4px;border-radius:2px;background:var(--surface-3)}
+.range .fill{position:absolute;top:12px;height:4px;border-radius:2px;background:var(--ink)}
+.range .h{position:absolute;top:5px;width:18px;height:18px;margin-left:-9px;border-radius:50%;background:var(--surface);box-shadow:0 0 0 1px var(--line-strong),0 1px 3px #0003;cursor:grab;touch-action:none}
+
+/* selection pill */
+#pill{position:fixed;z-index:35;display:flex;align-items:center;background:var(--surface);border:1px solid var(--line-strong);border-radius:999px;box-shadow:var(--shadow-pop);padding:3px 3px 3px 14px;animation:popin .12s ease-out}
+#pill input{border:0;outline:none;background:transparent;font:inherit;font-size:13px;color:var(--ink);width:168px;padding:0}
+#pill input::placeholder{color:var(--faint)}
+#pill .sep{width:1px;height:16px;background:var(--line-strong);margin:0 4px 0 8px}
+#pill button{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;border-radius:999px;padding:3px 10px 3px 8px;font-size:13px;color:var(--ink)}
+#pill button:hover{background:var(--surface-2)}
+::highlight(picking){background-color:var(--hl-pick)}
+::highlight(quoted){background-color:var(--hl)}
+
+/* 試作の切り替え。本番には持ち込まない */
+#variant{position:fixed;left:16px;bottom:16px;z-index:20;display:flex;align-items:center;gap:2px;font-size:12px;color:var(--faint);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:2px 2px 2px 10px;box-shadow:var(--shadow);transition:opacity .3s}
+body.hero #variant{opacity:0;pointer-events:none}
+#variant span{margin-right:6px}
+#variant button{border:0;background:transparent;border-radius:6px;padding:1px 8px;color:var(--sub)}
+#variant button[aria-pressed="true"]{background:var(--surface-3);color:var(--ink)}
+#zoom{position:fixed;right:16px;bottom:16px;z-index:20;border:1px solid var(--line);background:var(--surface);color:var(--sub);border-radius:8px;padding:2px 10px;font-size:12px;font-variant-numeric:tabular-nums;box-shadow:var(--shadow)}
+
+/* hero -> block morph */
+.ghost-shell{position:fixed;z-index:30;background:var(--surface);border:1px solid var(--line-strong);box-shadow:var(--shadow);pointer-events:none}
+.ghost-text{position:fixed;z-index:31;pointer-events:none;white-space:pre-wrap;color:var(--ink);transform-origin:0 0}
+
+@keyframes rise{from{opacity:0;transform:translateY(4px)}}
+@keyframes fadein{from{opacity:0}}
+@keyframes popin{from{opacity:0;transform:scale(.97)}}
+@keyframes sidein{from{opacity:0;transform:translateX(-8px)}}
+@keyframes blink{50%{opacity:.3}}
+@keyframes shimmer{from{background-position:100% 0}to{background-position:-200% 0}}
+@keyframes ring{0%{outline-color:var(--accent-line)}100%{outline-color:transparent}}
+@keyframes blankin{0%{background:var(--hl-pick)}100%{background:var(--accent-soft)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body class="hero">
+<div id="viewport"><div id="dots"></div><div id="world"><svg id="links"></svg></div></div>
+<div id="hero"><div class="suggest" aria-label="例"></div></div>
+<div id="pop" hidden></div>
+<div id="pill" hidden><input aria-label="ここについて聞く" placeholder="ここについて聞く"><span class="sep"></span><button type="button" class="go"></button></div>
+<button id="zoom" type="button" hidden></button>
+<div id="variant" role="group" aria-label="追い質問の置き場所"><span>追い質問</span><button type="button" data-v="right" aria-pressed="true">右へ</button><button type="button" data-v="below" aria-pressed="false">下へ</button></div>
+
+<script>
+'use strict'
+/* ============ 小道具 ============ */
+const $ = (s, r = document) => r.querySelector(s)
+const FAST = new URLSearchParams(location.search).has('fast')
+const T = ms => FAST ? ms * 0.25 : ms
+const sleep = ms => new Promise(r => setTimeout(r, T(ms)))
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag)
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v === false || v == null) continue
+    if (k === 'class') el.className = v
+    else if (k === 'style') el.style.cssText = v
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v)
+    else el.setAttribute(k, v === true ? '' : v)
+  }
+  for (const k of kids.flat()) if (k != null && k !== false) el.append(k.nodeType ? k : document.createTextNode(k))
+  return el
+}
+// Lucide (ISC)
+const ICONS = {
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  arrowUp: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  list: '<path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/>',
+  calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  mapPin: '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+  sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
+  tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
+  layout: '<rect width="18" height="7" x="3" y="3" rx="1"/><rect width="9" height="7" x="3" y="14" rx="1"/><rect width="5" height="7" x="16" y="14" rx="1"/>',
+  messageQ: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+  workflow: '<rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/>',
+  image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  alert: '<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>',
+}
+function icon(name, size = 16) {
+  const s = h('span', { class: 'ic' })
+  s.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`
+  return s
+}
+const fmtDefault = v => Array.isArray(v) ? v.join('と') : String(v)
+const fmt = (sec, v) => (sec?.fmt || fmtDefault)(v)
+const optV = o => typeof o === 'string' ? o : o.v
+const short = (t, n = 18) => t.length > n ? t.slice(0, n) + '…' : t
+
+/* ============ 盤面のデータ ============
+   Thread  = { id, n, x, y, origin: { threadId, msgIndex, quote } | null, messages: Message[], composer: Composer }
+             x, y は置きたい位置。実際の位置は layout() が毎回これと大きさから決める (押し下げを書き戻さない)
+   Message = { role: 'user', parts: [{ text }], decisions, assumptions }
+           | { role: 'ai', phase, blanks, filled, parts: Token[], more: Token[], decisions, assumptions }
+             phase: thinking → drafting → waiting ⇄ continuing → done (done → continuing は選び直し)
+   Token   = { p | h: Inline[] } | { ul: Inline[][] } | { quote: Inline[] } | { fence: lang, source, closed } | { image, alt }
+   Inline  = 文字列 | { blank: key } | { ref: key }
+   Side    = { id, key, kind: 'diagram' | 'image', source, from: { threadId, msgIndex }, status, svg?, error?, stale? }
+             key は「スレッド:発言:何番目の図か」。選び直しで続きを書き直しても、同じ key の図はその場で描き直す
+   Composer = { text, decisions, touched, attachments: [{ id, src }] }
+   線は origin と from から毎回引く。どこにも保存しない */
+const state = { threads: [], sides: [], view: { x: 0, y: 0, z: 1 }, mode: 'hero' }
+let seq = 0
+const ui = new Map()            // thread / side の id → { el, ... }
+const newComposer = () => ({ text: '', decisions: {}, touched: new Set(), attachments: [] })
+function newThread({ x, y, origin = null }) {
+  const t = { id: 't' + (++seq), n: seq, x, y, origin, messages: [], composer: newComposer() }
+  state.threads.push(t)
+  return t
+}
+const threadOf = id => state.threads.find(t => t.id === id)
+
+/* ============ 解釈の辞書（Feedforward） ============
+   試作は LEXICON の語だけで下線を引く。本番では adapter.analyze を Kuromoji の候補 + /judge + /inventory に差し替える */
+const LEXICON = [
+  { id: 'plan', words: ['計画', 'プラン', '行程'], top: true, icon: 'list', sections: [
+    { key: 'shape', q: 'どんな形で返しますか？', type: 'single', options: ['時間ごとの行程', '行き先の候補', '予算の見積もり'], def: '時間ごとの行程', say: ['欲しいのは', ''] }] },
+  { id: 'weekend', words: ['週末', '連休'], icon: 'calendar', sections: [
+    { key: 'days', q: '何日の旅ですか？', type: 'single', options: ['日帰り', '1泊2日', '2泊3日'], def: '1泊2日', say: ['日程は', ''] }] },
+  { id: 'family', words: ['家族', '子ども', '子供'], icon: 'users', sections: [
+    { key: 'ages', q: '子どもは何歳？', type: 'range', min: 0, max: 15, def: [3, 9], fmt: v => `${v[0]}〜${v[1]}歳`, say: ['子どもは', ''] },
+    { key: 'likes', q: '好きなものは？', hint: '複数可', type: 'chips', multi: true, options: ['動物', '寺社', '自然', '食べ歩き', 'ものづくり'], def: ['動物'], say: ['好きなのは', ''] }] },
+  { id: 'kyoto', words: ['京都'], icon: 'mapPin', sections: [
+    { key: 'area', q: 'どのあたり？', hint: '複数可', type: 'map', multi: true, def: ['東山'], say: ['旅の中心は', ''],
+      options: [{ v: '大原', x: 58, y: 4 }, { v: '嵐山', x: 4, y: 30 }, { v: '東山', x: 60, y: 32 }, { v: '京都駅周辺', x: 28, y: 56 }, { v: '伏見', x: 50, y: 74 }, { v: '宇治', x: 72, y: 88 }] }] },
+  { id: 'reply', words: ['返事'], icon: 'messageQ', sections: [
+    { key: 'scope', q: 'どの返事を描きますか？', type: 'single', options: ['空欄のある返事', '空欄のない返事'], def: '空欄のある返事', say: ['対象は', ''] }] },
+  { id: 'statechart', words: ['状態図'], top: true, icon: 'workflow', sections: [
+    { key: 'depth', q: 'どこまで描きますか？', type: 'single', options: ['主な流れだけ', '失敗とやり直しも'], def: '失敗とやり直しも', say: ['描くのは', ''] }] },
+  { id: 'name', words: ['名前', 'ネーミング'], top: true, icon: 'tag', sections: [
+    { key: 'count', q: 'どれくらい出しますか？', type: 'single', options: ['候補を5つ', '1つに絞る', '方向性だけ'], def: '候補を5つ', say: ['欲しいのは', ''] }] },
+  { id: 'app', words: ['アプリ'], icon: 'layout', sections: [
+    { key: 'kind', q: 'どんなアプリ？', type: 'chips', options: ['付箋ボード', 'メモ', '家計簿', '学習'], def: '付箋ボード', say: ['アプリは', ''] }] },
+]
+const GENERIC_TOP = { id: 'gshape', words: [], top: true, icon: 'list', sections: [
+  { key: 'gshape', q: 'どんな形で返しますか？', type: 'single', options: ['短い提案', '詳しい手順', '選択肢の比較'], def: '短い提案', say: ['欲しいのは', ''] }] }
+const SECTION = Object.fromEntries([...LEXICON, GENERIC_TOP].flatMap(e => e.sections.map(s => [s.key, s])))
+
+function analyze(text, { generic = true } = {}) {
+  const hits = []
+  for (const e of LEXICON) {
+    let best = null
+    for (const w of e.words) { const i = text.indexOf(w); if (i >= 0 && (!best || i < best.start)) best = { start: i, end: i + w.length } }
+    if (best) hits.push({ ...best, entry: e })
+  }
+  if (generic && !hits.length && text.trim().length >= 8) hits.push({ start: -1, end: -1, entry: GENERIC_TOP })
+  hits.sort((a, b) => a.start - b.start)
+  const out = []; let last = -1
+  for (const m of hits) { if (m.start >= 0 && m.start < last) continue; out.push(m); if (m.start >= 0) last = m.end }
+  return out
+}
+
+/* ============ 返事の台本（見本） ============
+   台本は Markdown で書く。[[key]] は、空欄のキーなら空欄、それ以外は選んだ値の参照になる。
+   ```mermaid のコードブロックと ![alt](src) の画像は、本文に描かず、隣のブロックに出す */
+const SIGHTS = {
+  '東山': ['清水寺から二年坂まで、坂を下りながら歩く', '八坂神社の境内で休憩'],
+  '嵐山': ['竹林の小径を朝のうちに歩く', '渡月橋のたもとで川をのぞく'],
+  '大原': ['三千院の苔の庭を見る', '里の駅で野菜のおやつ'],
+  '京都駅周辺': ['京都鉄道博物館で運転シミュレーター', '京都水族館のオオサンショウウオ'],
+  '伏見': ['伏見稲荷の千本鳥居を四ツ辻まで', '十石舟で酒蔵の町並みを見る'],
+  '宇治': ['平等院の鳳凰堂を池越しに眺める', '宇治橋のそばで抹茶ソフト'],
+}
+const LIKES = { '動物': '京都市動物園でキリンの食事を見る', '寺社': '子ども用の御朱印帳を一冊選ぶ', '自然': '鴨川デルタで飛び石わたり', '食べ歩き': '錦市場で玉子焼きと豆乳ドーナツ', 'ものづくり': '友禅染めのハンカチづくり' }
+const NAMES = {
+  '一緒に考える心強さ': [['となり案', '隣の席から案が返ってくる'], ['あいづち', '書く手を止めずに返事が来る'], ['ふたり机', '一つの机を囲む'], ['相席ノート', '知らない考えと同じ席に着く'], ['Kasane', '書きかけに考えを重ねる']],
+  '書きかけを置ける気軽さ': [['したがき', '完成前でも置いていい'], ['ちょい置き', '思いつきを一旦置く'], ['ゆるふせん', 'はがせる、貼り直せる'], ['余白帳', '余白から書き始める'], ['Draftly', '下書きのままで進む']],
+  'すぐ決められる軽さ': [['ひと押し', '最後の一押しをもらう'], ['きめ手', '決め手が見つかる'], ['すぐ案', '待たずに案が出る'], ['Pickle', '選ぶ（pick）が軽く転がる'], ['一択', '迷いを一つに減らす']],
+}
+const QUOTE_NOTES = {
+  'となり案': {
+    '響き': ['「と・な・り」は口を大きく開けずに言えて、呼びかけにも使える', '最後の「案」で、道具より提案をする相手の印象になる', '候補の中で、いちばん声の高さが変わらない'],
+    '意味': ['隣の席から案が返ってくる、という使い方そのものを指している', '「となり」は対等な距離で、上下の関係を感じさせない', '「案」があるので、決めるのは自分だと伝わる'],
+    '覚えやすさ': ['ひらがな3文字と漢字1文字で、ロゴにしても崩れにくい', '「となりの案」と聞き違えても意味が通る', '検索では一般的な語なので、英字表記を添えたい'],
+  },
+}
+const stopName = s => s.split(/から|で|の|を/)[0].slice(0, 7)
+function routeMap(stops) {
+  const W = 340, H = 204, n = stops.length
+  const pts = stops.map((s, k) => ({ x: 44 + (n === 1 ? 126 : k * 252 / (n - 1)), y: 112 - Math.sin(k / Math.max(1, n - 1) * Math.PI) * 46 + (k % 2 ? 16 : -4), s }))
+  const route = pts.map((p, k) => (k ? 'L' : 'M') + p.x.toFixed(0) + ' ' + p.y.toFixed(0)).join(' ')
+  const grid = Array.from({ length: 8 }, (_, k) => `<path d="M${k * 48} 0V${H}M0 ${k * 32}H${W}"/>`).join('')
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="Hiragino Sans, Noto Sans JP, sans-serif">
+<rect width="${W}" height="${H}" fill="#efece4"/><g stroke="#e2ddd1" stroke-width="1">${grid}</g>
+<path d="M-10 176 C 70 150, 150 198, 230 166 S 330 128, 360 142" fill="none" stroke="#c4d7e2" stroke-width="12" stroke-linecap="round"/>
+<path d="${route}" fill="none" stroke="#3b4454" stroke-width="1.6" stroke-dasharray="4 4" stroke-linecap="round"/>
+${pts.map((p, k) => `<circle cx="${p.x}" cy="${p.y}" r="9" fill="#d9553a"/><text x="${p.x}" y="${p.y + 3.6}" font-size="10" font-weight="600" fill="#fff" text-anchor="middle">${k + 1}</text><text x="${p.x}" y="${p.y + 24}" font-size="10.5" fill="#3b4454" text-anchor="middle">${stopName(p.s)}</text>`).join('')}
+</svg>`
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
+}
+
+const SCRIPTS = {
+  travel: () => ({
+    blanks: { pace: { label: 'ペース', q: '2日目はどのくらい回る？', type: 'single', options: ['ゆっくり', 'ほどほど', '詰め込む'] } },
+    draft: v => {
+      const areas = v.area || ['東山'], likes = v.likes || ['動物'], days = v.days || '1泊2日'
+      return [
+        '## [[area]]を中心に、[[days]]',
+        `${v.ages ? `${v.ages[0]}〜${v.ages[1]}歳の子どもと歩く前提で、` : ''}移動は一日2か所までにして、夕方は早めに宿へ戻ります。`,
+        `## ${days === '日帰り' ? '午前' : '1日目'}`,
+        `- ${SIGHTS[areas[0]]?.[0] || areas[0] + 'を歩く'}`,
+        `- ${LIKES[likes[0]] || likes[0] + 'を楽しめる場所に寄る'}`,
+        '- 昼は混む前の11時に入る',
+        `${days === '日帰り' ? '午後' : '2日目'}は[[pace]]で組みます。`,
+      ].join('\n')
+    },
+    more: v => {
+      const areas = v.area || ['東山'], likes = v.likes || ['動物'], days = v.days || '1泊2日'
+      const d2 = days === '日帰り' ? '午後' : '2日目'
+      const pool = [SIGHTS[areas[1] || areas[0]]?.[1], ...likes.slice(1).map(l => LIKES[l]), SIGHTS['京都駅周辺'][0], SIGHTS['伏見'][0], LIKES['自然']].filter(Boolean)
+      const n = { 'ゆっくり': 2, 'ほどほど': 3, '詰め込む': 4 }[v.pace] || 3
+      const day2 = pool.slice(0, n)
+      const stops = [SIGHTS[areas[0]]?.[0] || areas[0], LIKES[likes[0]] || likes[0], ...day2]
+      return [
+        `## ${d2}（[[pace]]）`,
+        ...day2.map(s => '- ' + s),
+        `![行程の地図](${routeMap(stops)})`,
+        v.pace === '詰め込む' ? '移動が増えるので、バスより地下鉄とタクシーを組み合わせます。' : '帰りの新幹線は16時台にすると、子どもが車内で眠れます。',
+      ].join('\n')
+    },
+  }),
+  flow: () => ({
+    blanks: {
+      pending: { label: 'どうするか', q: '空欄が残ったまま次の入力が来たら？', type: 'single', options: ['空欄を待ち続ける', '既定値で続ける', '書き出しを捨てる'] },
+      redo: { label: 'どこから', q: '埋めた空欄を選び直したら？', type: 'single', options: ['続きだけ書き直す', '書き出しから書き直す'] },
+    },
+    draft: () => [
+      '返事は「考えています」から始まり、書き出しの途中で空欄があれば、そこで止まります。図にする前に、二つ決めておきます。',
+      '- 空欄が残ったまま次の入力が来たら、[[pending]]',
+      '- 埋めた空欄を選び直したら、[[redo]]',
+    ].join('\n'),
+    more: v => {
+      const next = { '空欄を待ち続ける': '空欄待ち', '既定値で続ける': '続き', '書き出しを捨てる': '考え中' }[v.pending] || '空欄待ち'
+      const redo = v.redo === '書き出しから書き直す' ? '考え中' : '続き'
+      const fail = (v.depth || '失敗とやり直しも') === '失敗とやり直しも'
+      return [
+        '```mermaid',
+        'stateDiagram-v2',
+        '  [*] --> 考え中',
+        '  考え中 --> 書き出し: 計画が届く',
+        ...(fail ? ['  考え中 --> 失敗: エラー', '  失敗 --> 考え中: もう一度'] : []),
+        '  書き出し --> 空欄待ち: 空欄あり',
+        '  書き出し --> 続き: 空欄なし',
+        '  空欄待ち --> 続き: すべて埋めた',
+        `  空欄待ち --> ${next}: 次の入力`,
+        '  続き --> 完了',
+        `  完了 --> ${redo}: 選び直す`,
+        '  完了 --> [*]',
+        '```',
+        `「[[pending]]」なので、空欄待ちから次の入力で${next === '空欄待ち' ? 'どこへも進みません。返事は止まったまま残ります' : `「${next}」へ移ります`}。選び直しは「${redo}」に戻します。`,
+      ].join('\n')
+    },
+  }),
+  naming: () => ({
+    blanks: { feel: { label: '大切にしたい感覚', q: '名前で最初に伝えたいのは？', type: 'chips', options: Object.keys(NAMES) } },
+    draft: () => 'この名前で最初に伝えたいのは、[[feel]]です。その感覚に近い言葉から探します。',
+    more: v => {
+      const list = NAMES[v.feel] || Object.values(NAMES)[0]
+      const count = v.count || '候補を5つ'
+      if (count === '方向性だけ') return '## [[feel]]の方向\n「隣にいる」「重ねる」「相づち」のように、二人の距離を表す言葉を軸にします。'
+      return ['## [[feel]]から', ...list.slice(0, count === '1つに絞る' ? 1 : 5).map(([a, b]) => `- ${a}　${b}`)].join('\n')
+    },
+  }),
+  aboutQuote: quote => ({
+    blanks: { angle: { label: '見る点', q: 'どの点から見ますか？', type: 'single', options: ['響き', '意味', '覚えやすさ'] } },
+    draft: () => `「${short(quote, 24)}」について、もう少し掘り下げます。まず[[angle]]から見ます。`,
+    more: v => {
+      const notes = QUOTE_NOTES[quote]?.[v.angle] || [`「${short(quote, 12)}」を${v.angle}の点で、ほかの候補と並べる`, '似たものとの違いを一言で言えるかを確かめる', '迷う点があれば、そこを空欄にしてもう一度聞く']
+      return ['## [[angle]]', ...notes.map(s => '- ' + s)].join('\n')
+    },
+  }),
+  followUp: text => /道具|響き/.test(text) ? {
+    blanks: {},
+    draft: () => ['道具らしさを足すなら、手に取る物の名前を後ろに付けます。', '- となりペン　書く道具として', '- となり机　置き場所として', '- Tonari Pad　英字にして道具に寄せる'].join('\n'),
+  } : {
+    blanks: {},
+    draft: () => [`「${short(text, 20)}」を受けて、次に決めることを三つに分けます。`, '- いまの案で、いちばん迷っているところを一つ選ぶ', '- それを変えたときに、ほかの何が変わるかを書き出す', '- 30分で試せる形にして、手を動かす'].join('\n'),
+  },
+  brokenFlow: () => ({
+    blanks: {},
+    draft: () => ['付箋から返事までを流れ図にすると、こうなります。', '```mermaid', 'flowchart LR', '  入力[書く --> 解析[下線を引く]', '  解析 --> 送る', '  送る --> 返事[返事が届く]', '```'].join('\n'),
+  }),
+  image: () => ({
+    blanks: { focus: { label: '見るところ', q: 'どこから見ますか？', type: 'single', options: ['色', '余白', '文字の大きさ'] } },
+    draft: () => '画像を受け取りました。まず[[focus]]から見ます。',
+    more: v => ({
+      '色': ['## [[focus]]', '- 差し色が二つあるので、一つに絞ると視線が迷わない', '- 背景と文字の明るさの差を、もう一段広げる'],
+      '余白': ['## [[focus]]', '- 上と左の余白がそろっていない', '- 見出しの下を、本文の行間の倍に広げる'],
+      '文字の大きさ': ['## [[focus]]', '- 見出しと本文の差が小さく、どこから読むか迷う', '- 本文は一段下げ、見出しは一段上げる'],
+    }[v.focus] || ['- ' + v.focus + 'を見直す']).join('\n'),
+  }),
+  generic: text => ({
+    blanks: {
+      approach: { label: '進め方', q: 'どう進めますか？', type: 'single', options: ['案を広げる', '一つに絞る', '手順にする'] },
+      priority: { label: '軸', q: 'いちばん大事にしたいのは？', type: 'chips', options: ['早さ', '確実さ', 'わかりやすさ'] },
+    },
+    draft: () => `「${short(text)}」を受けて、[[approach]]方向で書きます。軸にするのは[[priority]]です。`,
+    more: v => {
+      const p = v.priority
+      const items = { '案を広げる': [`${p}を最優先にした案`, `${p}を少し譲って範囲を広げる案`, `あえて${p}を外して考える案`], '一つに絞る': [`${p}を満たす案を一つ選び、理由を三行で書く`], '手順にする': [`${p}について、いまの状態を書き出す`, '足りない点を一つ選ぶ', '次の30分でできることを決める'] }[v.approach] || [`${p}を軸に考える`]
+      return ['## [[approach]]', ...items.map(s => '- ' + s)].join('\n')
+    },
+  }),
+}
+function pickScript({ thread, aiFirst, text, quote, images }) {
+  if (aiFirst) return SCRIPTS.aboutQuote(quote)
+  const asked = thread.messages.filter(m => m.role === 'user').length
+  if (asked > 1 || thread.origin) return /フロー|流れ図/.test(text) ? SCRIPTS.brokenFlow() : SCRIPTS.followUp(text)
+  if (/京都|旅行/.test(text)) return SCRIPTS.travel()
+  if (/状態図|流れ/.test(text)) return SCRIPTS.flow()
+  if (/名前|ネーミング/.test(text)) return SCRIPTS.naming()
+  if (images) return SCRIPTS.image()
+  return SCRIPTS.generic(text)
+}
+
+// Markdown → Token[]。閉じていないコードブロックは closed: false のまま返す (描かずにソースを見せる)
+const MARKER = /\[\[([a-z][a-z0-9_]{0,31})\]\]/g
+function inlineParts(text, blankKeys) {
+  const out = []; let i = 0
+  for (const m of text.matchAll(MARKER)) {
+    if (m.index > i) out.push(text.slice(i, m.index))
+    out.push(blankKeys.has(m[1]) ? { blank: m[1] } : { ref: m[1] }); i = m.index + m[0].length
+  }
+  if (i < text.length) out.push(text.slice(i))
+  return out
+}
+function mdToTokens(md, blankKeys = new Set()) {
+  const out = [], lines = md.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const L = lines[i]
+    const fence = L.match(/^```\s*([\w-]*)\s*$/)
+    if (fence) {
+      const body = []; let closed = false
+      for (i++; i < lines.length; i++) { if (/^```\s*$/.test(lines[i])) { closed = true; break } body.push(lines[i]) }
+      out.push({ fence: fence[1] || '', source: body.join('\n'), closed })
+      continue
+    }
+    const img = L.match(/^!\[([^\]]*)\]\((.+)\)\s*$/)
+    if (img) out.push({ image: img[2], alt: img[1] })
+    else if (L.startsWith('## ')) out.push({ h: inlineParts(L.slice(3), blankKeys) })
+    else if (L.startsWith('- ')) { const last = out.at(-1); const li = inlineParts(L.slice(2), blankKeys); if (last?.ul) last.ul.push(li); else out.push({ ul: [li] }) }
+    else if (L.startsWith('> ')) out.push({ quote: inlineParts(L.slice(2), blankKeys) })
+    else if (L.trim()) out.push({ p: inlineParts(L, blankKeys) })
+  }
+  return out
+}
+
+/* ============ 生成元のつなぎ目 ============
+   UI が知っているのは adapter だけ。
+   analyze(text) → 下線の一覧。reply(ctx) → Plan = { blanks, draft(values) → Token[], more: ((values, signal) → Promise<Token[]>) | null }
+   本番では reply を server.mjs の /draft と /continue に、analyze を Kuromoji + /judge + /inventory に差し替える。
+   まとめ (/summary) は state.threads と state.sides をそのまま読めばよい */
+async function scriptedReply(ctx) {
+  await sleep(1500 + Math.random() * 900)
+  const s = pickScript(ctx)
+  const keys = new Set(Object.keys(s.blanks))
+  return {
+    blanks: s.blanks,
+    draft: v => mdToTokens(s.draft(v), keys),
+    more: s.more ? async v => { await sleep(500); return mdToTokens(s.more(v)) } : null,
+  }
+}
+// server.mjs の Draft {blocks, blanks} と Continuation {blocks} を Plan にする。試作では使わない
+async function post(path, body, signal) {
+  const res = await fetch(path + location.search, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `サーバーがエラーを返しました (${res.status})`)
+  return data
+}
+const blocksToMd = blocks => blocks.map(b => ({ heading: '## ', item: '- ', quote: '> ' }[b.kind] || '') + b.text).join('\n')
+async function remoteReply({ text, quote, assumptions }) {
+  const d = await post('/draft', { text, assumptions, quote })
+  const blanks = Object.fromEntries(d.blanks.map(b => [b.key, { label: b.label, q: b.question, type: 'chips', options: b.options, multi: b.multiple }]))
+  const keys = new Set(Object.keys(blanks))
+  return {
+    blanks,
+    draft: () => mdToTokens(blocksToMd(d.blocks), keys),
+    more: async (v, signal) => {
+      const filled = [...keys].map(key => ({ key, label: blanks[key].label, value: fmt(blanks[key], v[key]) }))
+      const c = await post('/continue', { text, assumptions, quote, draft: blocksToMd(d.blocks).replace(MARKER, (m, k) => keys.has(k) ? fmt(blanks[k], v[k]) : m), filled }, signal)
+      return mdToTokens(blocksToMd(c.blocks))
+    },
+  }
+}
+const adapter = { analyze, reply: scriptedReply }
+
+/* ============ Pele ============ */
+const pelePromise = import('https://cdn.jsdelivr.net/npm/pele@1.13.0/+esm').catch(e => { console.warn('[pele] 読み込めませんでした', e); return null })
+const diagramName = src => {
+  const head = src.trim().split('\n')[0] || ''
+  return /^stateDiagram/.test(head) ? '状態図' : /^(flowchart|graph)\b/.test(head) ? 'フローチャート' : /^sequenceDiagram/.test(head) ? 'シーケンス図' : /^classDiagram/.test(head) ? 'クラス図' : '図'
+}
+
+/* ============ 画面と座標 ============ */
+const viewport = $('#viewport'), world = $('#world'), linksSvg = $('#links'), dots = $('#dots'), zoomBtn = $('#zoom')
+const view = state.view
+const toWorld = (sx, sy) => ({ x: (sx - view.x) / view.z, y: (sy - view.y) / view.z })
+function applyView() {
+  world.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.z})`
+  dots.style.backgroundSize = `${24 * view.z}px ${24 * view.z}px`
+  dots.style.backgroundPosition = `${view.x}px ${view.y}px`
+  zoomBtn.hidden = Math.abs(view.z - 1) < 0.01
+  zoomBtn.textContent = Math.round(view.z * 100) + '%'
+  closePop(); hidePill()
+}
+function zoomAt(cx, cy, k) {
+  const z = Math.min(1.6, Math.max(0.35, view.z * k))
+  view.x = cx - (cx - view.x) * z / view.z; view.y = cy - (cy - view.y) * z / view.z; view.z = z
+  applyView()
+}
+function animateView(to, ms = 380) {
+  const from = { ...view }, t0 = performance.now()
+  const step = t => {
+    const k = Math.min(1, (t - t0) / T(ms)), e = 1 - Math.pow(1 - k, 3)
+    view.x = from.x + (to.x - from.x) * e; view.y = from.y + (to.y - from.y) * e; view.z = from.z + (to.z - from.z) * e
+    applyView()
+    if (k < 1) requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
+}
+// 人が始めた操作 (追い質問、図への移動) でだけ呼ぶ。返事が届いたことでは画面を動かさない
+function reveal(r, pad = 48) {
+  const sx = r.x * view.z + view.x, sy = r.y * view.z + view.y, sw = r.w * view.z, sh = Math.min(r.h * view.z, innerHeight - 2 * pad)
+  let dx = 0, dy = 0
+  if (sx + sw > innerWidth - pad) dx = innerWidth - pad - (sx + sw)
+  if (sx + dx < pad) dx = pad - sx
+  if (sy + sh > innerHeight - pad) dy = innerHeight - pad - (sy + sh)
+  if (sy + dy < pad) dy = pad - sy
+  if (dx || dy) animateView({ x: view.x + dx, y: view.y + dy, z: view.z })
+}
+zoomBtn.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 1 / view.z)
+
+const isBackground = t => t === viewport || t === world || t === dots || !!t.closest?.('#links')
+let dismissed = false   // この押下で、開いていたポップオーバーや選択のピルを閉じたか
+viewport.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !isBackground(e.target)) return
+  const wasDismiss = dismissed
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur()
+  viewport.setPointerCapture(e.pointerId)
+  const ox = e.clientX, oy = e.clientY, vx = view.x, vy = view.y
+  let moved = false
+  const move = m => {
+    moved ||= Math.hypot(m.clientX - ox, m.clientY - oy) > 4
+    if (!moved || state.mode !== 'canvas') return
+    viewport.classList.add('panning'); view.x = vx + m.clientX - ox; view.y = vy + m.clientY - oy; applyView()
+  }
+  viewport.addEventListener('pointermove', move)
+  viewport.addEventListener('lostpointercapture', () => {
+    viewport.removeEventListener('pointermove', move); viewport.classList.remove('panning')
+    if (moved || wasDismiss || state.mode !== 'canvas') return
+    createDraftAt(ox, oy)
+  }, { once: true })
+})
+window.addEventListener('wheel', e => {
+  if (state.mode !== 'canvas' || e.target.closest?.('#pop')) return
+  e.preventDefault()
+  // ピンチは小さな値が続き、ホイールは一刻みが大きい。一刻みで飛びすぎないように抑える
+  if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-Math.max(-40, Math.min(40, e.deltaY)) * 0.01))
+  else { view.x -= e.deltaX; view.y -= e.deltaY; applyView() }
+}, { passive: false })
+// 画像を盤面の外に落としても、ページが画像に置き換わらないように
+window.addEventListener('dragover', e => e.preventDefault())
+window.addEventListener('drop', e => e.preventDefault())
+
+/* ============ 配置 ============
+   置きたい位置 (thread.x/y) と大きさから、毎回すべての位置を決め直す。押し下げた位置は書き戻さない。
+   上にあるものから順に置き、重なったら下へずらす。図と画像は、元の発言の高さで、ブロックの右に並べる */
+const GAP = 24, SIDE_GAP = 32
+let placed = new Map(), layoutQueued = false
+const ro = new ResizeObserver(() => scheduleLayout())
+function scheduleLayout() { if (!layoutQueued) { layoutQueued = true; requestAnimationFrame(layout) } }
+function overlapsAny(r, rects) {
+  return rects.find(o => r.x < o.x + o.w + GAP && r.x + r.w + GAP > o.x && r.y < o.y + o.h + GAP && r.y + r.h + GAP > o.y)
+}
+function settle(r, rects) {
+  for (let k = 0, o; k < 200 && (o = overlapsAny(r, rects)); k++) r.y = o.y + o.h + GAP
+  return r
+}
+function offsetIn(el, root) {
+  let y = 0
+  for (let n = el; n && n !== root; n = n.offsetParent) y += n.offsetTop
+  return y
+}
+function setPos(el, r) { el.style.left = r.x + 'px'; el.style.top = r.y + 'px' }
+// 続きを書き直す間はチップが消える。そのあいだは最後にあった高さに留め、図を上下させない
+function sideAnchor(s, block) {
+  const chip = block.querySelector(`.sidechip[data-side="${s.id}"]`)
+  if (chip) return (s.anchor = offsetIn(chip, block) - 14)
+  if (s.anchor != null) return s.anchor
+  const m = ui.get(s.from.threadId).msgEls[s.from.msgIndex]
+  return m ? offsetIn(m, block) : 0
+}
+function layout() {
+  layoutQueued = false
+  const rects = [], P = new Map()
+  for (const t of [...state.threads].sort((a, b) => a.y - b.y || a.n - b.n)) {
+    const { el } = ui.get(t.id)
+    const r = settle({ x: t.x, y: t.y, w: el.offsetWidth, h: el.offsetHeight }, rects)
+    setPos(el, r); rects.push(r); P.set(t.id, r)
+    let below = -Infinity
+    for (const s of state.sides) {
+      if (s.from.threadId !== t.id) continue
+      const sel = ui.get(s.id).el
+      const sr = settle({ x: r.x + r.w + SIDE_GAP, y: Math.max(r.y + sideAnchor(s, el), below), w: sel.offsetWidth, h: sel.offsetHeight }, rects)
+      setPos(sel, sr); rects.push(sr); P.set(s.id, sr); below = sr.y + sr.h + 16
+    }
+  }
+  placed = P
+  drawLinks()
+}
+function layoutNow() { layout() }
+
+/* ============ 線 ============ */
+const busy = phase => phase === 'thinking' || phase === 'drafting' || phase === 'continuing'
+const curve = (x1, y1, x2, y2) => { const dx = Math.max(24, (x2 - x1) / 2); return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}` }
+function quoteRange(t) {
+  const src = threadOf(t.origin.threadId), m = src && ui.get(src.id)?.msgEls[t.origin.msgIndex]
+  return m ? findQuoteRange(m, t.origin.quote) : null
+}
+function drawLinks() {
+  let svg = ''
+  const quoted = []
+  for (const t of state.threads) {
+    if (!t.origin) continue
+    const S = placed.get(t.origin.threadId), U = placed.get(t.id)
+    if (!S || !U) continue
+    const range = quoteRange(t)
+    let y1 = S.y + 24, x1 = S.x + S.w
+    if (range) {
+      quoted.push(range)
+      const rects = range.getClientRects(), last = rects[rects.length - 1]
+      if (last) y1 = toWorld(0, last.top + last.height / 2).y
+    }
+    const live = busy(t.messages.at(-1)?.phase) ? ' class="live"' : ''
+    // 下に置いたブロックへは、元のブロックの左の余白を通す
+    if (U.x < x1 - 40 && U.y > S.y + S.h - 8) {
+      const xl = S.x - 28
+      svg += `<path${live} d="M${S.x},${y1} C${xl},${y1} ${xl},${y1} ${xl},${y1 + 28} L${xl},${U.y - 4} C${xl},${U.y + 26} ${xl},${U.y + 26} ${U.x},${U.y + 26}"/><circle${live} cx="${S.x}" cy="${y1}" r="2.5"/>`
+    } else svg += `<path${live} d="${curve(x1, y1, U.x, U.y + 26)}"/><circle${live} cx="${x1}" cy="${y1}" r="2.5"/>`
+  }
+  for (const s of state.sides) {
+    const A = placed.get(s.from.threadId), B = placed.get(s.id)
+    if (!A || !B) continue
+    const block = ui.get(s.from.threadId).el
+    const y1 = A.y + sideAnchor(s, block) + 14
+    const live = s.status === 'streaming' ? ' class="live"' : ''
+    svg += `<path${live} d="${curve(A.x + A.w, y1, B.x, Math.max(B.y + 18, Math.min(y1, B.y + B.h - 18)))}"/>`
+  }
+  linksSvg.innerHTML = svg
+  if (window.CSS?.highlights) CSS.highlights.set('quoted', new Highlight(...quoted))
+}
+// 選んだ一節を、元の発言の中から探し直す。続きを書き直すと DOM が作り直されるので、範囲は持ち歩かない。
+// 選択の文字列は段落の間に改行が入るので、空白を除いて比べる
+function findQuoteRange(msgEl, quote) {
+  const want = quote.replace(/\s+/g, '')
+  if (!want) return null
+  const walker = document.createTreeWalker(msgEl, NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentElement.closest('.text') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT })
+  let s = ''; const map = []
+  for (let n; (n = walker.nextNode());) for (let k = 0; k < n.data.length; k++) if (!/\s/.test(n.data[k])) { s += n.data[k]; map.push([n, k]) }
+  const at = s.indexOf(want)
+  if (at < 0) return null
+  const r = document.createRange()
+  r.setStart(map[at][0], map[at][1]); r.setEnd(map[at + want.length - 1][0], map[at + want.length - 1][1] + 1)
+  return r
+}
+
+/* ============ ポップオーバー ============ */
+const pop = $('#pop')
+let popCtx = null
+function openPop(anchor, sections, get, set) {
+  hidePop()
+  const ctx = popCtx = { anchor }
+  for (const sec of sections) {
+    const now = sec.type === 'range' ? h('span', { class: 'now' }, fmt(sec, get(sec.key))) : null
+    const block = h('section', {}, h('div', { class: 'q' }, sec.q, sec.hint ? h('span', { class: 'hint' }, sec.hint) : null, now))
+    block.append(WIDGETS[sec.type](sec, () => get(sec.key), (v, opt = {}) => {
+      set(sec.key, v)
+      if (now) now.textContent = fmt(sec, v)
+      if (opt.close) setTimeout(() => { if (popCtx === ctx) closePop() }, opt.delay || 120)
+    }))
+    pop.append(block)
+  }
+  pop.hidden = false
+  const r = anchor.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight
+  let top = r.bottom + 8
+  if (top + ph > innerHeight - 12) top = Math.max(12, r.top - ph - 8)
+  pop.style.left = Math.min(Math.max(12, r.left - 8), innerWidth - pw - 12) + 'px'; pop.style.top = top + 'px'
+}
+function hidePop() { if (!pop.hidden) { pop.hidden = true; pop.innerHTML = ''; popCtx = null } }
+const closePop = hidePop
+pop.addEventListener('pointerdown', e => { if (!e.target.closest('input')) e.preventDefault() })
+document.addEventListener('pointerdown', e => {
+  dismissed = false
+  if (!pop.hidden && !pop.contains(e.target) && !popCtx?.anchor.contains?.(e.target)) { dismissed = true; closePop() }
+  if (!pill.hidden && !pill.contains(e.target)) { dismissed = true; hidePill() }
+}, true)
+function otherRow(onSubmit) {
+  const wrap = h('div')
+  const btn = h('button', { class: 'other', type: 'button' }, icon('plus', 13), 'その他')
+  btn.onclick = () => {
+    const input = h('input', { class: 'other-input', placeholder: '自分の言葉で', 'aria-label': 'その他' })
+    input.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && input.value.trim()) onSubmit(input.value.trim()) }
+    wrap.replaceChildren(input); input.focus()
+  }
+  wrap.append(btn)
+  return wrap
+}
+const WIDGETS = {
+  single(sec, get, set) {
+    const box = h('div', { class: 'opts' })
+    for (const o of sec.options) { const v = optV(o); box.append(h('button', { class: 'opt', type: 'button', onclick: () => set(v, { close: true }) }, v, get() === v ? icon('check', 15) : null)) }
+    return h('div', {}, box, otherRow(v => set(v, { close: true })))
+  },
+  chips(sec, get, set) {
+    const box = h('div', { class: 'chipset' })
+    const isOn = v => sec.multi ? (get() || []).includes(v) : get() === v
+    const toggle = (v, b) => {
+      if (!sec.multi) return set(v, { close: true })
+      const cur = new Set(get() || []); cur.has(v) ? cur.delete(v) : cur.add(v)
+      if (!cur.size) return
+      set([...cur]); b.classList.toggle('on', cur.has(v))
+    }
+    const opts = sec.options.map(optV)
+    for (const v of [].concat(get() || [])) if (!opts.includes(v)) opts.push(v)
+    for (const v of opts) { const b = h('button', { class: 'chip' + (isOn(v) ? ' on' : ''), type: 'button' }, v); b.onclick = () => toggle(v, b); box.append(b) }
+    return h('div', {}, box, otherRow(v => sec.multi ? set([...(get() || []), v], { close: true }) : set(v, { close: true })))
+  },
+  map(sec, get, set) {
+    const box = h('div', { class: 'map' })
+    for (const o of sec.options) {
+      const b = h('button', { class: 'chip' + ((get() || []).includes(o.v) ? ' on' : ''), type: 'button', style: `left:${o.x}%;top:${o.y}%` }, o.v)
+      b.onclick = () => { const cur = new Set(get() || []); cur.has(o.v) ? cur.delete(o.v) : cur.add(o.v); if (!cur.size) return; set([...cur]); b.classList.toggle('on', cur.has(o.v)) }
+      box.append(b)
+    }
+    return h('div', {}, box)
+  },
+  range(sec, get, set) {
+    const r = h('div', { class: 'range' }, h('div', { class: 'track' }))
+    const fill = h('div', { class: 'fill' }); r.append(fill)
+    const hs = [h('div', { class: 'h', role: 'slider', 'aria-label': '下限' }), h('div', { class: 'h', role: 'slider', 'aria-label': '上限' })]
+    const span = sec.max - sec.min
+    const draw = v => { const p = v.map(x => (x - sec.min) / span * 100); hs[0].style.left = p[0] + '%'; hs[1].style.left = p[1] + '%'; fill.style.left = p[0] + '%'; fill.style.width = (p[1] - p[0]) + '%' }
+    hs.forEach((hd, i) => {
+      hd.addEventListener('pointerdown', e => {
+        hd.setPointerCapture(e.pointerId)
+        const move = m => {
+          const rr = r.getBoundingClientRect(), x = Math.round(sec.min + Math.min(1, Math.max(0, (m.clientX - rr.left) / rr.width)) * span)
+          const v = [...get()]; v[i] = i === 0 ? Math.min(x, v[1]) : Math.max(x, v[0])
+          if (v[i] !== get()[i]) { set(v); draw(v) }
+        }
+        hd.addEventListener('pointermove', move)
+        hd.addEventListener('lostpointercapture', () => hd.removeEventListener('pointermove', move), { once: true })
+      })
+      r.append(hd)
+    })
+    requestAnimationFrame(() => draw(get()))
+    return r
+  },
+}
+
+/* ============ 入力欄（Composer） ============
+   ミラーと変換中 (IME) の扱いは board.html の付箋と同じ。変換中は下線を隠し、確定してから解析する */
+const composerUI = new WeakMap()
+function mountComposer(c, { variant, placeholder, onSend, generic = () => true }) {
+  const ta = h('textarea', { rows: 1, placeholder, 'aria-label': placeholder })
+  ta.value = c.text
+  const mirror = h('div', { class: 'mirror', 'aria-hidden': 'true' })
+  const atts = h('div', { class: 'atts', hidden: true })
+  const file = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true })
+  const attach = h('button', { class: 'ib attach', type: 'button', 'aria-label': '画像を添える' }, icon('plus', variant === 'hero' ? 18 : 16))
+  const pill = h('button', { class: 'pillbtn', type: 'button', hidden: true })
+  const send = h('button', { class: 'send', type: 'button', 'aria-label': '送る', disabled: true }, icon('arrowUp', variant === 'hero' ? 17 : 15))
+  const el = h('div', { class: 'composer ' + (variant === 'hero' ? 'hero' : 'compact') }, atts, h('div', { class: 'main' }, h('div', { class: 'field' }, mirror, ta)), h('div', { class: 'tools' }, attach, pill, send), file)
+  const u = { el, ta, mirror, atts, pill, send, matches: [], composing: false, generic }
+  composerUI.set(c, u)
+
+  let timer
+  const grow = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
+  u.sync = () => { grow(); send.disabled = !(ta.value.trim() || c.attachments.length) }
+  ta.addEventListener('input', e => {
+    c.text = ta.value; u.sync()
+    mirror.classList.add('stale')
+    if (e.isComposing) return
+    clearTimeout(timer); timer = setTimeout(() => analyzeComposer(c), 260)
+  })
+  ta.addEventListener('compositionstart', () => { u.composing = true; mirror.classList.add('stale') })
+  ta.addEventListener('compositionend', () => { u.composing = false; clearTimeout(timer); timer = setTimeout(() => analyzeComposer(c), 120) })
+  ta.addEventListener('click', () => {
+    if (ta.selectionStart !== ta.selectionEnd) return
+    const pos = ta.selectionStart
+    const i = u.matches.findIndex(m => m.start >= 0 && pos >= m.start && pos <= m.end)
+    const span = i >= 0 && mirror.querySelector(`[data-i="${i}"]`)
+    if (span) openComposerPop(c, span, u.matches[i].entry.sections)
+  })
+  const submit = () => {
+    if (!(ta.value.trim() || c.attachments.length)) return
+    clearTimeout(timer); analyzeComposer(c); closePop()
+    onSend()
+  }
+  ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submit() } })
+  send.onclick = submit
+  attach.onclick = () => file.click()
+  file.onchange = () => { addImages(c, [...file.files]); file.value = '' }
+  const images = dt => [...(dt?.files ?? [])].filter(f => f.type.startsWith('image/'))
+  ta.addEventListener('paste', e => { const f = images(e.clipboardData); if (f.length) { e.preventDefault(); addImages(c, f) } })
+  el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('over') })
+  el.addEventListener('dragleave', () => el.classList.remove('over'))
+  el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('over'); const f = images(e.dataTransfer); if (f.length) addImages(c, f) })
+  requestAnimationFrame(u.sync)
+  return u
+}
+function addImages(c, files) {
+  for (const f of files) {
+    const reader = new FileReader()
+    reader.onload = () => { c.attachments.push({ id: 'a' + (++seq), src: reader.result }); renderAtts(c) }
+    reader.readAsDataURL(f)
+  }
+}
+function renderAtts(c) {
+  const u = composerUI.get(c)
+  u.atts.hidden = !c.attachments.length
+  u.atts.replaceChildren(...c.attachments.map(a => h('div', { class: 'att' }, h('img', { src: a.src, alt: '' }),
+    h('button', { type: 'button', 'aria-label': '外す', onclick: () => { c.attachments = c.attachments.filter(x => x !== a); renderAtts(c) } }, icon('x', 10)))))
+  u.sync()
+}
+function analyzeComposer(c) {
+  const u = composerUI.get(c)
+  u.matches = adapter.analyze(c.text, { generic: u.generic() })   // 返信では「どんな形で返すか」を聞かない。形はスレッドの最初で決まっている
+  for (const m of u.matches) for (const s of m.entry.sections) if (s.def !== undefined && !(s.key in c.decisions)) c.decisions[s.key] = s.def
+  renderMirror(c); renderPill(c)
+}
+function openComposerPop(c, anchor, sections) {
+  openPop(anchor, sections, k => c.decisions[k], (k, v) => { c.decisions[k] = v; c.touched.add(k); renderMirror(c); renderPill(c) })
+}
+const esc = s => s.replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]))
+function renderMirror(c) {
+  const u = composerUI.get(c), t = u.ta.value
+  let html = '', i = 0
+  u.matches.forEach((m, idx) => {
+    if (m.start < 0 || m.start < i) return
+    const set = m.entry.sections.some(s => c.touched.has(s.key))
+    html += esc(t.slice(i, m.start)) + `<span class="kw${set ? ' set' : ''}" data-i="${idx}">${esc(t.slice(m.start, m.end))}</span>`
+    i = m.end
+  })
+  u.mirror.innerHTML = html + esc(t.slice(i)) + ' '
+  u.mirror.classList.remove('stale')
+}
+// 送る前は、いちばん大きな前提だけを入力欄の道具の列に出す (モデルを選ぶ欄の位置)
+function renderPill(c) {
+  const u = composerUI.get(c)
+  const m = u.matches.find(m => m.entry.top)
+  if (!m) { u.pill.hidden = true; return }
+  const sec = m.entry.sections[0]
+  u.pill.replaceChildren(icon(m.entry.icon, 14), h('span', { class: 'v' }, fmt(sec, c.decisions[sec.key])), h('span', { class: 'chev' }, icon('chevronDown', 13)))
+  u.pill.onclick = () => openComposerPop(c, u.pill, [sec])
+  u.pill.hidden = false
+}
+// 送った内容を発言にして、入力欄を空に戻す
+function takeMessage(c) {
+  const u = composerUI.get(c)
+  const assumptions = u.matches.flatMap(m => m.entry.sections.map(s => ({ icon: m.entry.icon, sec: s })))
+    .filter(({ sec }) => c.decisions[sec.key] !== undefined)
+    .map(({ icon, sec }) => ({ icon, say: sec.say, value: fmt(sec, c.decisions[sec.key]) }))
+  const msg = { role: 'user', parts: c.text.trim() ? [{ text: c.text.trim() }] : [], decisions: { ...c.decisions }, assumptions }
+  const atts = c.attachments
+  Object.assign(c, newComposer())
+  u.ta.value = ''; u.matches = []
+  renderMirror(c); renderPill(c); renderAtts(c)
+  return { msg, atts }
+}
+
+/* ============ ブロック ============ */
+function mountThread(t, { draft = false, nested = false } = {}) {
+  const msgs = h('div', { class: 'msgs' })
+  const comp = mountComposer(t.composer, { variant: 'compact', placeholder: draft ? '何を考えますか？' : '返信', onSend: () => sendInThread(t), generic: () => !t.messages.length })
+  const el = h('article', { class: 'block' + (draft ? ' draft' : '') + (nested ? ' nested' : ''), 'data-thread': t.id },
+    t.origin ? h('div', { class: 'quoteline' }, t.origin.quote) : null, msgs, comp.el)
+  world.append(el); ro.observe(el)
+  ui.set(t.id, { el, msgs, msgEls: [], comp })
+  if (draft) {
+    // 何も書かずに離れた入力欄は消す
+    el.addEventListener('focusout', () => setTimeout(() => {
+      if (!t.messages.length && !t.composer.text.trim() && !t.composer.attachments.length && !el.contains(document.activeElement) && popCtx === null) removeThread(t)
+    }, 150))
+  }
+  scheduleLayout()
+  return ui.get(t.id)
+}
+function removeThread(t) {
+  const u = ui.get(t.id)
+  if (!u) return
+  ro.unobserve(u.el); u.el.remove(); ui.delete(t.id)
+  state.threads = state.threads.filter(x => x !== t)
+  scheduleLayout()
+}
+function createDraftAt(sx, sy) {
+  const p = toWorld(sx, sy)
+  const t = newThread({ x: Math.round(p.x - 20), y: Math.round(p.y - 22) })
+  const u = mountThread(t, { draft: true })
+  layoutNow()
+  u.comp.ta.focus({ preventScroll: true })
+}
+function mountUserMsg(t, i) {
+  const m = t.messages[i], u = ui.get(t.id)
+  const el = h('div', { class: 'msg user' }, m.parts.length ? h('div', { class: 'bubble' }, m.parts.map(p => p.text).join('')) : null, h('div', { class: 'chips', hidden: true }))
+  u.msgs.append(el); u.msgEls[i] = el
+}
+function mountAiMsg(t, i) {
+  const m = t.messages[i], u = ui.get(t.id)
+  const assumed = m.assumptions.length ? h('ul', { class: 'assumed' }, m.assumptions.map(a => h('li', {}, icon(a.icon, 13), h('span', {}, a.say[0], ' ', h('b', {}, a.value), a.say[1])))) : null
+  const el = h('div', { class: 'msg ai' }, assumed, h('div', { class: 'text draft' }), h('div', { class: 'text more' }), h('div', { class: 'status', role: 'status' }))
+  u.msgs.append(el); u.msgEls[i] = el
+}
+const msgEl = (t, i) => ui.get(t.id).msgEls[i]
+
+function sendInThread(t) {
+  const u = ui.get(t.id)
+  const before = u.comp.el.getBoundingClientRect()
+  const { msg, atts } = takeMessage(t.composer)
+  t.messages.push(msg)
+  const i = t.messages.length - 1
+  if (u.el.classList.contains('draft')) { u.el.classList.remove('draft'); u.comp.ta.placeholder = '返信' }
+  mountUserMsg(t, i)
+  atts.forEach((a, k) => addUserImage(t, i, a, k))
+  // 入力欄はブロックの下へ移る。飛ばずに滑らせる
+  const after = u.comp.el.getBoundingClientRect()
+  if (Math.abs(after.top - before.top) > 2) u.comp.el.animate([{ transform: `translate(${(before.left - after.left) / view.z}px,${(before.top - after.top) / view.z}px)` }, { transform: 'none' }], { duration: T(280), easing: 'cubic-bezier(.2,.8,.2,1)' })
+  layoutNow()
+  startReply(t)
+}
+
+/* ============ 返事（Leaving Blanks） ============ */
+const replies = new WeakMap()   // AI の発言 → { plan, gen, abort, timer, drafted }
+const values = m => ({ ...m.decisions, ...m.filled })
+const unfilled = m => Object.keys(m.blanks).filter(k => !(k in m.filled))
+function setPhase(t, i, phase) {
+  const m = t.messages[i]; m.phase = phase
+  const st = msgEl(t, i).querySelector('.status')
+  st.className = 'status'
+  if (phase === 'thinking' || phase === 'continuing') st.replaceChildren(h('span', { class: 'spark' }, icon('sparkles', 13)), h('span', { class: 'shimmer' }, phase === 'thinking' ? '考えています' : '続きを書いています'))
+  else if (phase === 'waiting') {
+    const left = unfilled(m).length, total = Object.keys(m.blanks).length
+    st.classList.add('needs')
+    st.textContent = total > 1 && left === total ? `${left}つの空欄を埋めたら続けます` : left === 1 ? 'あと1つ埋めたら続けます' : `あと${left}つ埋めたら続けます`
+  } else st.replaceChildren()
+  scheduleLayout()
+}
+function announce(t) {
+  const el = ui.get(t.id).el
+  if (el.contains(document.activeElement)) return
+  el.classList.remove('fresh'); void el.offsetWidth; el.classList.add('fresh')
+}
+function fail(t, i, e, retry) {
+  const st = msgEl(t, i).querySelector('.status')
+  t.messages[i].phase = 'failed'
+  st.className = 'status failed'
+  const again = h('button', { class: 'retry', type: 'button' }, 'もう一度')
+  again.onclick = retry
+  st.replaceChildren(h('span', {}, e.message), again)
+  scheduleLayout()
+}
+async function startReply(t, { aiFirst = false } = {}) {
+  const user = aiFirst ? null : t.messages.at(-1)
+  const m = { role: 'ai', phase: 'thinking', blanks: {}, filled: {}, parts: [], more: [], decisions: user?.decisions ?? {}, assumptions: user?.assumptions ?? [] }
+  t.messages.push(m)
+  const i = t.messages.length - 1
+  const r = { plan: null, gen: 0, abort: null, timer: null, drafted: false }
+  replies.set(m, r)
+  mountAiMsg(t, i); setPhase(t, i, 'thinking')
+  const ctx = { thread: t, msgIndex: i, aiFirst, text: user?.parts.map(p => p.text).join('') ?? '', quote: t.origin?.quote ?? null, images: user ? state.sides.filter(s => s.from.threadId === t.id && s.from.msgIndex === i - 1).length : 0, assumptions: m.assumptions.map(a => a.say[0] + a.value + a.say[1]) }
+  try { r.plan = await adapter.reply(ctx) } catch (e) { fail(t, i, e, () => { t.messages.splice(i, 1); msgEl(t, i).remove(); startReply(t, { aiFirst }) }); return }
+  m.blanks = r.plan.blanks
+  setPhase(t, i, 'drafting'); announce(t)
+  m.parts = r.plan.draft(values(m))
+  await stream(t, i, 'draft', m.parts, 0)
+  r.drafted = true
+  afterDraft(t, i)
+}
+function afterDraft(t, i) {
+  const m = t.messages[i], r = replies.get(m)
+  if (unfilled(m).length) setPhase(t, i, 'waiting')
+  else if (r.plan.more) continueReply(t, i)
+  else setPhase(t, i, 'done')
+}
+// 選び直しの連打を待つ間にも、走っている続きは止める。前の続きの図は薄くして残し、描き直したら差し替える
+function continueReply(t, i) {
+  const m = t.messages[i], r = replies.get(m)
+  clearTimeout(r.timer); r.gen++; r.abort?.abort()
+  for (const s of sidesOf(t.id, i)) if (s.ord >= draftSideCount(m)) { s.stale = true; renderSide(s) }
+  setPhase(t, i, 'continuing')
+  r.timer = setTimeout(() => writeMore(t, i), T(650))
+}
+async function writeMore(t, i) {
+  const m = t.messages[i], r = replies.get(m)
+  const g = ++r.gen, ac = r.abort = new AbortController()
+  msgEl(t, i).querySelector('.text.more').replaceChildren()
+  let tokens
+  try { tokens = await r.plan.more(values(m), ac.signal) } catch (e) { if (g === r.gen && e.name !== 'AbortError') fail(t, i, e, () => continueReply(t, i)); return }
+  if (g !== r.gen) return
+  m.more = tokens
+  const produced = await stream(t, i, 'more', tokens, g)
+  if (g !== r.gen) return
+  for (const s of sidesOf(t.id, i)) if (s.ord >= draftSideCount(m) && !produced.includes(s.ord)) removeSide(s)
+  setPhase(t, i, 'done')
+}
+function fillBlank(t, i, key, v) {
+  const m = t.messages[i], r = replies.get(m)
+  m.filled[key] = v
+  for (const b of msgEl(t, i).querySelectorAll(`.blank[data-key="${key}"]`)) { b.textContent = fmt(m.blanks[key], v); b.classList.add('filled') }
+  if (!r.drafted) return
+  if (unfilled(m).length) setPhase(t, i, 'waiting')
+  else if (r.plan.more) continueReply(t, i)
+}
+
+const isSideToken = tok => tok.fence === 'mermaid' || tok.image
+const draftSideCount = m => m.parts.filter(isSideToken).length
+async function stream(t, i, where, tokens, g) {
+  const m = t.messages[i], r = replies.get(m)
+  const alive = () => r.gen === g
+  const box = msgEl(t, i).querySelector(where === 'draft' ? '.text.draft' : '.text.more')
+  let ord = where === 'draft' ? 0 : draftSideCount(m)
+  const produced = []
+  for (const tok of tokens) {
+    if (!alive()) return produced
+    if (isSideToken(tok)) { produced.push(ord); await (tok.image ? streamImage : streamDiagram)(t, i, box, tok, ord++, alive); continue }
+    let el
+    if (tok.fence !== undefined) { box.append(h('pre', {}, tok.source)); continue }
+    if (tok.p) el = h('p'); else if (tok.h) el = h('h3'); else if (tok.ul) el = h('ul'); else if (tok.quote) el = h('blockquote')
+    box.append(el)
+    if (tok.ul) { for (const li of tok.ul) { const l = h('li'); el.append(l); await typeInline(l, li, t, i, alive) } }
+    else await typeInline(el, tok.p || tok.h || tok.quote, t, i, alive)
+    await sleep(110)
+  }
+  return produced
+}
+async function typeInline(el, parts, t, i, alive) {
+  const m = t.messages[i]
+  for (const part of parts) {
+    if (!alive()) return
+    if (typeof part === 'string') {
+      const node = document.createTextNode(''); el.append(node)
+      for (let k = 0; k < part.length; k += 3) { if (!alive()) return; node.data = part.slice(0, k + 3); await sleep(28) }
+    } else if (part.blank) {
+      const key = part.blank, spec = m.blanks[key]
+      const b = h('button', { class: 'blank', type: 'button', 'data-key': key }, spec.label)
+      if (key in m.filled) { b.textContent = fmt(spec, m.filled[key]); b.classList.add('filled') }
+      b.onclick = () => openPop(b, [{ ...spec, key }], k => m.filled[k] ?? (spec.type === 'range' ? spec.def : undefined), (k, v) => fillBlank(t, i, k, v))
+      el.append(b); await sleep(240)
+    } else if (part.ref) el.append(h('span', { class: 'ref' }, refText(m, part.ref)))
+  }
+}
+function refText(m, key) {
+  const v = values(m)[key]
+  return v == null ? '' : fmt(m.blanks[key] || SECTION[key], v)
+}
+
+/* ============ 隣のブロック（図と画像） ============ */
+const sidesOf = (threadId, msgIndex) => state.sides.filter(s => s.from.threadId === threadId && s.from.msgIndex === msgIndex)
+function ensureSide(t, i, ord, kind) {
+  const key = `${t.id}:${i}:${ord}`
+  let s = state.sides.find(s => s.key === key)
+  if (s && s.kind !== kind) { removeSide(s); s = null }
+  if (!s) {
+    s = { id: 's' + (++seq), key, ord, kind, source: '', from: { threadId: t.id, msgIndex: i }, status: 'streaming' }
+    state.sides.push(s)
+    const el = h('aside', { class: 'side ' + kind, 'data-side': s.id })
+    world.append(el); ro.observe(el); ui.set(s.id, { el })
+  }
+  return s
+}
+function removeSide(s) {
+  const u = ui.get(s.id)
+  if (u) { ro.unobserve(u.el); u.el.remove(); ui.delete(s.id) }
+  state.sides = state.sides.filter(x => x !== s)
+  scheduleLayout()
+}
+function sideChip(s, label) {
+  const b = h('button', { class: 'sidechip', type: 'button', 'data-side': s.id }, icon(s.kind === 'image' ? 'image' : 'workflow', 13), h('span', {}, label))
+  b.onclick = () => {
+    const u = ui.get(s.id), r = placed.get(s.id)
+    if (!u || !r) return
+    reveal(r)
+    u.el.classList.remove('fresh'); void u.el.offsetWidth; u.el.classList.add('fresh')
+  }
+  return b
+}
+function renderChips(s) {
+  for (const b of document.querySelectorAll(`.sidechip[data-side="${s.id}"]`)) {
+    b.classList.toggle('pending', s.status === 'streaming')
+    b.classList.toggle('error', s.status === 'error')
+  }
+}
+function renderSide(s) {
+  const u = ui.get(s.id)
+  if (!u) return
+  u.el.classList.toggle('stale', !!s.stale)
+  if (s.kind === 'image') u.el.replaceChildren(s.status === 'ready' ? h('img', { src: s.source, alt: s.alt || '' }) : h('div', { class: 'ph' }))
+  else if (s.status === 'ready') { const d = h('div', { class: 'dia' }); d.innerHTML = s.svg; fitSvg(d.firstElementChild); u.el.replaceChildren(d) }
+  else if (s.status === 'error') u.el.replaceChildren(h('div', { class: 'err' }, icon('alert', 13), h('span', {}, s.error)), h('pre', { class: 'code' }, s.source))
+  else if (!s.svg) u.el.replaceChildren(h('pre', { class: 'src' }, s.pending || ' '))
+  renderChips(s)
+  scheduleLayout()
+}
+// Pele は 16px の文字で測る。本文の大きさにそろえて縮める
+function fitSvg(svg) {
+  if (!svg) return
+  const w = +svg.getAttribute('width')
+  if (w) svg.style.width = Math.round(w * 0.86) + 'px'
+}
+// コードブロックが開いたら隣にブロックを出し、閉じるまではソースを流す。閉じてから一度だけ描く
+async function streamDiagram(t, i, box, tok, ord, alive) {
+  const s = ensureSide(t, i, ord, 'diagram')
+  s.status = 'streaming'; s.pending = ''
+  box.append(h('div', { class: 'chipline' }, sideChip(s, diagramName(tok.source))))
+  renderSide(s)
+  for (const line of tok.source.split('\n')) {
+    if (!alive()) return
+    s.pending += (s.pending ? '\n' : '') + line
+    if (!s.svg) renderSide(s)
+    await sleep(60)
+  }
+  s.source = s.pending
+  if (!tok.closed) { Object.assign(s, { status: 'error', error: 'コードブロックが閉じていません', svg: null, stale: false }); renderSide(s); return }
+  const pele = await pelePromise
+  if (!alive()) return
+  try {
+    if (!pele) throw new Error('Pele を読み込めませんでした')
+    Object.assign(s, { svg: pele.render(s.source, { fontFamily: getComputedStyle(document.body).fontFamily }).svg, status: 'ready', error: null, stale: false })
+  } catch (e) {
+    Object.assign(s, { svg: null, status: 'error', error: '図にできませんでした。' + String(e.message).split('\n')[0], stale: false })
+  }
+  renderSide(s)
+  await sleep(200)
+}
+async function streamImage(t, i, box, tok, ord, alive) {
+  const s = ensureSide(t, i, ord, 'image')
+  Object.assign(s, { status: 'streaming', alt: tok.alt })
+  box.append(h('div', { class: 'chipline' }, sideChip(s, tok.alt || '画像')))
+  renderSide(s)
+  await sleep(900)
+  if (!alive()) return
+  Object.assign(s, { status: 'ready', source: tok.image, stale: false })
+  renderSide(s)
+}
+function addUserImage(t, i, a, k) {
+  const s = ensureSide(t, i, k, 'image')
+  Object.assign(s, { status: 'ready', source: a.src, alt: '画像' })
+  const chips = msgEl(t, i).querySelector('.chips')
+  chips.hidden = false
+  chips.append(sideChip(s, '画像'))
+  renderSide(s)
+}
+
+/* ============ 選んだ一節について聞く ============ */
+const pill = $('#pill'), pillInput = $('#pill input'), pillGo = $('#pill .go')
+pillGo.append(icon('messageQ', 14), '詳しく')
+let pick = null   // { threadId, msgIndex, quote, range }
+function hidePill() {
+  if (pill.hidden) return
+  pill.hidden = true; pick = null; pillInput.value = ''
+  window.CSS?.highlights?.delete('picking')
+}
+document.addEventListener('mouseup', e => {
+  if (pill.contains(e.target)) return
+  setTimeout(() => {
+    const sel = getSelection()
+    const text = sel && !sel.isCollapsed ? sel.toString().trim() : ''
+    const node = sel?.anchorNode?.parentElement
+    const box = text ? node?.closest('.msg.ai .text') : null
+    const block = box?.closest('.block')
+    const t = block && threadOf(block.dataset.thread)
+    if (!t) { hidePill(); return }
+    const range = sel.getRangeAt(0).cloneRange()
+    pick = { threadId: t.id, msgIndex: ui.get(t.id).msgEls.indexOf(box.closest('.msg')), quote: text, range }
+    // 入力欄に移ると選択が消えるので、ハイライトで残す
+    window.CSS?.highlights?.set('picking', new Highlight(range))
+    pill.hidden = false
+    const r = range.getBoundingClientRect(), pw = pill.offsetWidth
+    pill.style.left = Math.min(innerWidth - pw - 12, Math.max(12, r.left + r.width / 2 - pw / 2)) + 'px'
+    pill.style.top = Math.min(innerHeight - 52, r.bottom + 10) + 'px'
+  })
+})
+pillGo.addEventListener('pointerdown', e => e.preventDefault())
+pillGo.onclick = () => pick && spawn(pick, '')
+pillInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && pick) { e.preventDefault(); spawn(pick, pillInput.value.trim()) } })
+// 追い質問のブロックをどこに置くか (試作の切り替え)。
+//   right  元のブロックとその図の列の右に、選んだ一節の高さで置く。木は右へ伸びる
+//   below  元のブロックのすぐ下に少し字下げして差し込み、その下にあるものを押し下げる。木は下へ伸びる
+const FOLLOW = {
+  right: (S, right, quoteY) => ({ x: right + 72, y: quoteY - 30 }),
+  below: (S) => ({ x: S.x + 40, y: S.y + S.h + 36, nested: true }),   // 字下げした分だけ幅を詰め、右端を元にそろえる。右の図の列にかからない
+}
+let follow = new URLSearchParams(location.search).get('follow') === 'below' ? 'below' : 'right'
+for (const b of document.querySelectorAll('#variant button')) {
+  b.setAttribute('aria-pressed', b.dataset.v === follow)
+  b.onclick = () => { follow = b.dataset.v; for (const x of document.querySelectorAll('#variant button')) x.setAttribute('aria-pressed', x === b) }
+}
+// AI が先に話し、入力欄にはフォーカスを移さない
+function spawn({ threadId, msgIndex, quote, range }, question) {
+  const S = placed.get(threadId)
+  const right = Math.max(S.x + S.w, ...state.sides.filter(s => s.from.threadId === threadId).map(s => { const r = placed.get(s.id); return r ? r.x + r.w : 0 }))
+  const p = FOLLOW[follow](S, right, toWorld(0, range.getBoundingClientRect().top).y)
+  const t = newThread({ x: Math.round(p.x), y: Math.round(p.y), origin: { threadId, msgIndex, quote } })
+  hidePill(); getSelection().removeAllRanges()
+  mountThread(t, { nested: !!p.nested })
+  if (question) { t.messages.push({ role: 'user', parts: [{ text: question }], decisions: {}, assumptions: [] }); mountUserMsg(t, 0); startReply(t) }
+  else startReply(t, { aiFirst: true })
+  layoutNow()
+  reveal(placed.get(t.id))
+}
+
+/* ============ 最初の入力欄 → ブロック ============ */
+const hero = { composer: newComposer() }
+const heroUI = mountComposer(hero.composer, { variant: 'hero', placeholder: '何を考えますか？', onSend: sendFromHero })
+$('#hero').prepend(heroUI.el)
+const EXAMPLES = [
+  ['京都旅行', '週末に家族で京都旅行の計画を立てたい'],
+  ['返事の流れ', 'AIの返事が届くまでの流れを状態図にしたい'],
+  ['アプリの名前', 'アプリの名前を考えたい'],
+]
+for (const [label, text] of EXAMPLES) $('.suggest').append(h('button', { type: 'button', onclick: () => {
+  hero.composer.text = text; heroUI.ta.value = text; heroUI.sync(); analyzeComposer(hero.composer)
+  heroUI.ta.focus(); heroUI.ta.setSelectionRange(text.length, text.length)
+} }, label))
+heroUI.ta.focus()
+
+function sendFromHero() {
+  const I = heroUI.el.getBoundingClientRect()
+  const fieldR = heroUI.ta.getBoundingClientRect()
+  const text = hero.composer.text.trim()
+  const { msg, atts } = takeMessage(hero.composer)
+  state.mode = 'canvas'
+  document.body.classList.remove('hero')
+  const W = 460
+  const t = newThread({ x: Math.round((innerWidth - W) / 2), y: 80 })
+  t.messages.push(msg)
+  const u = mountThread(t)
+  mountUserMsg(t, 0)
+  atts.forEach((a, k) => addUserImage(t, 0, a, k))
+  startReply(t)   // 考えている行まで同期で置かれるので、着地点はそれを含んだ大きさになる
+  layoutNow()
+  morph(I, fieldR, u.el, text)
+  heroUI.el.style.visibility = 'hidden'
+  u.comp.ta.focus({ preventScroll: true })
+}
+// 入力欄の外形がブロックの外形へ縮み、書いた文が吹き出しの位置へ移る。中身は外形が着く直前に現れる
+function morph(I, fieldR, block, text) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return   // WAAPI は CSS の reduced-motion 指定では止まらない
+  const F = block.getBoundingClientRect()
+  const bubble = block.querySelector('.bubble')
+  const B = bubble?.getBoundingClientRect()
+  const dur = T(560), ease = 'cubic-bezier(.22,1,.36,1)'
+  const shell = h('div', { class: 'ghost-shell' })
+  document.body.append(shell)
+  shell.animate([
+    { left: I.left + 'px', top: I.top + 'px', width: I.width + 'px', height: I.height + 'px', borderRadius: '22px' },
+    { left: F.left + 'px', top: F.top + 'px', width: F.width + 'px', height: F.height + 'px', borderRadius: '16px' },
+  ], { duration: dur, easing: ease, fill: 'forwards' })
+  shell.animate([{ opacity: 1 }, { opacity: 0 }], { duration: T(160), delay: dur, fill: 'forwards' }).onfinish = () => shell.remove()
+  block.animate([{ opacity: 0 }, { opacity: 0, offset: 0.55 }, { opacity: 1 }], { duration: dur, easing: 'ease-out' })
+  if (bubble && text) {
+    const g = h('div', { class: 'ghost-text', style: `left:${fieldR.left}px;top:${fieldR.top}px;width:${fieldR.width}px;font-size:16px;line-height:1.7` }, text)
+    document.body.append(g)
+    bubble.style.visibility = 'hidden'
+    const k = 14 / 16
+    g.animate([{ transform: 'none' }, { transform: `translate(${B.left + 12 - fieldR.left}px,${B.top + 5 + 0.3 - fieldR.top}px) scale(${k})` }], { duration: dur, easing: ease, fill: 'forwards' })
+      .onfinish = () => { bubble.style.visibility = ''; g.remove() }
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return
+  closePop(); hidePill()
+  const t = state.threads.find(t => !t.messages.length && ui.get(t.id).el.contains(document.activeElement))
+  if (t && !t.composer.text.trim()) removeThread(t)
+})
+window.addEventListener('resize', scheduleLayout)
+applyView()
+</script>
+</body>
+</html>
