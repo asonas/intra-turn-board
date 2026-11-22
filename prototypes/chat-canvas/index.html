@@ -10,7 +10,7 @@
 <style>
 :root{
   color-scheme:light;
-  --bg:#f6f6f7; --dot:#00000014;
+  --bg:#f6f6f7; --dot:#00000014; --paper:#fbfaf6;
   --surface:#ffffff; --surface-2:#f2f2f4; --surface-3:#e8e8eb;
   --line:#00000017; --line-strong:#00000026;
   --ink:#1a1a1e; --sub:#5c5d65; --faint:#9a9ba3;
@@ -26,7 +26,7 @@
 @media (prefers-color-scheme:dark){
   :root{
     color-scheme:dark;
-    --bg:#131315; --dot:#ffffff12;
+    --bg:#131315; --dot:#ffffff12; --paper:#17171a;
     --surface:#1b1b1e; --surface-2:#242428; --surface-3:#2e2e33;
     --line:#ffffff0f; --line-strong:#ffffff1c;
     --ink:#ececef; --sub:#a1a1a9; --faint:#6d6d76;
@@ -60,15 +60,11 @@ body.hero #dots{opacity:0}
 /* hero (empty state) */
 #hero{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px 16px 14vh;z-index:10;pointer-events:none}
 #hero>*{pointer-events:auto}
-.suggest{display:flex;gap:6px;margin-top:14px;flex-wrap:wrap;justify-content:center;transition:opacity .2s}
-.suggest button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:4px 12px;font-size:13px;color:var(--sub)}
-.suggest button:hover{color:var(--ink);background:var(--surface-2)}
 body:not(.hero) #hero>*{pointer-events:none}
-body:not(.hero) .suggest{opacity:0}
 
 /* composer */
-.composer{position:relative;display:grid;grid-template-columns:auto 1fr auto auto;grid-template-areas:"atts atts atts atts" "field field field field" "attach . pill send";align-items:center;background:var(--surface-2);border-radius:12px;transition:box-shadow .15s}
-.composer.compact{grid-template-areas:"atts atts atts atts" "attach field pill send";align-items:end;padding:5px;column-gap:2px;--fs:14px;--lh:1.65}
+.composer{position:relative;display:grid;grid-template-columns:auto 1fr auto;grid-template-areas:"atts atts atts" "field field field" "attach . send";align-items:center;background:var(--surface-2);border-radius:12px;transition:box-shadow .15s}
+.composer.compact{grid-template-areas:"atts atts atts" "attach field send";align-items:end;padding:5px;column-gap:2px;--fs:14px;--lh:1.65}
 .composer.hero{width:min(640px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--line-strong);border-radius:22px;padding:14px 10px 10px 18px;box-shadow:var(--shadow);--fs:16px;--lh:1.7}
 .composer.over{box-shadow:0 0 0 2px var(--accent-line)}
 .composer .tools{display:contents}
@@ -76,7 +72,6 @@ body:not(.hero) .suggest{opacity:0}
 .composer.compact .main{padding:3px 4px}
 .composer.hero .main{padding:2px 8px 10px 0;min-height:64px}
 .composer .attach{grid-area:attach}
-.composer .pillbtn{grid-area:pill}
 .composer .send{grid-area:send}
 .composer.hero .attach{margin-left:-8px}
 .atts{grid-area:atts;display:flex;gap:6px;padding:2px 0 8px}
@@ -98,21 +93,28 @@ body:not(.hero) .suggest{opacity:0}
 .send{width:28px;height:28px;border-radius:50%;border:0;padding:0;background:var(--send-bg);color:var(--send-ink);display:inline-flex;align-items:center;justify-content:center;transition:background .15s,color .15s}
 .send:disabled{background:var(--send-off);color:var(--send-off-ink);cursor:default}
 .hero .send{width:32px;height:32px}
-.pillbtn{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;border-radius:8px;height:28px;padding:0 6px 0 8px;font-size:12.5px;color:var(--sub);margin-right:4px;max-width:240px;white-space:nowrap}
-.pillbtn .v{overflow:hidden;text-overflow:ellipsis}
-.pillbtn .chev{color:var(--faint)}
-.pillbtn:hover{background:var(--surface-3);color:var(--ink)}
-.hero .pillbtn{height:32px}
 
 /* block */
-.block{position:absolute;left:0;top:0;width:460px;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px 14px 12px;outline:2px solid transparent;outline-offset:3px;transition:background-color .3s,border-color .3s,box-shadow .3s}
+.block{position:absolute;left:0;top:0;width:460px;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px 14px 12px;outline:2px solid transparent;outline-offset:3px;transition:background-color .3s,border-color .3s,box-shadow .3s;cursor:grab}
 .block.draft{width:400px;background:transparent;border-color:transparent;box-shadow:none;padding:0}
-.block.nested{width:420px}
-.block.draft .composer{background:var(--surface);box-shadow:0 0 0 1px var(--line-strong),var(--shadow)}
-.block .composer{margin-top:14px}
+.block.draft.lead{width:460px}
+.block.lead .composer.hero{width:auto}
+.block.draft .composer:not(.hero){background:var(--surface);box-shadow:0 0 0 1px var(--line-strong),var(--shadow)}
+.block .composer{margin-top:14px;cursor:auto}
 .block.draft .composer{margin-top:0}
 .block.fresh{animation:ring 1.6s ease-out}
-.quoteline{font-size:12.5px;line-height:1.6;color:var(--sub);border-left:2px solid var(--accent-line);padding:0 0 0 10px;margin:2px 4px 12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.block .text,.block .bubble{cursor:text}
+.block .text.onquote{cursor:pointer}
+.block.dragging,.side.dragging{box-shadow:var(--shadow-pop);z-index:5}
+body.dragging,body.dragging *{cursor:grabbing!important;user-select:none}
+.quoteline{font-size:12.5px;line-height:1.6;color:var(--sub);border-left:2px solid var(--accent-line);padding:0 0 0 10px;margin:2px 4px 12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
+.quoteline:hover{color:var(--ink)}
+/* 前提: 呼び出し元の会話から作る素材。入力欄も影もなく、紙のように左に置く */
+.block.premise{width:440px;background:var(--paper);border-color:var(--line);border-radius:10px;box-shadow:none;padding:20px 24px 18px}
+.block.premise .msg.ai{padding:0}
+.block.premise .text h3{font-size:15px;margin:18px 0 4px}
+.block.premise .text h3:first-child{margin-top:0}
+.block.premise .text li{margin:3px 0}
 .msg+.msg{margin-top:16px}
 .msg{animation:rise .28s ease-out both}
 .msg.user{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
@@ -148,11 +150,11 @@ body:not(.hero) .suggest{opacity:0}
 .chipline{margin:4px 0 8px}
 .sidechip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-strong);background:transparent;border-radius:8px;padding:1px 9px 1px 7px;font-size:12.5px;line-height:1.7;color:var(--sub);vertical-align:middle}
 .sidechip:hover{color:var(--ink);background:var(--surface-2)}
-.sidechip.pending .ic{animation:blink 1.1s infinite}
+.sidechip.pending .ic,.side.repairing .src{animation:blink 1.1s infinite}
 .sidechip.error{color:var(--danger)}
 
 /* side block */
-.side{position:absolute;left:0;top:0;width:max-content;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px;max-width:560px;outline:2px solid transparent;outline-offset:3px;animation:sidein .32s cubic-bezier(.2,.8,.2,1) both;
+.side{position:absolute;left:0;top:0;width:max-content;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px;max-width:560px;outline:2px solid transparent;outline-offset:3px;animation:sidein .32s cubic-bezier(.2,.8,.2,1) both;cursor:grab;
   --pele-bg:var(--surface);--pele-fg:var(--ink);--pele-muted:var(--sub);--pele-line:var(--sub);--pele-surface:var(--surface-2);--pele-surface-alt:var(--surface-3);--pele-border:var(--line-strong);--pele-accent:var(--accent);--pele-radius:8px}
 .side.image{padding:6px}
 .side.fresh{animation:ring 1.4s ease-out}
@@ -194,21 +196,14 @@ body:not(.hero) .suggest{opacity:0}
 .range .h{position:absolute;top:5px;width:18px;height:18px;margin-left:-9px;border-radius:50%;background:var(--surface);box-shadow:0 0 0 1px var(--line-strong),0 1px 3px #0003;cursor:grab;touch-action:none}
 
 /* selection pill */
-#pill{position:fixed;z-index:35;display:flex;align-items:center;background:var(--surface);border:1px solid var(--line-strong);border-radius:999px;box-shadow:var(--shadow-pop);padding:3px 3px 3px 14px;animation:popin .12s ease-out}
-#pill input{border:0;outline:none;background:transparent;font:inherit;font-size:13px;color:var(--ink);width:168px;padding:0}
+#pill{position:fixed;z-index:35;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line-strong);border-radius:999px;box-shadow:var(--shadow-pop);padding:4px 4px 4px 14px;animation:popin .12s ease-out}
+#pill input{border:0;outline:none;background:transparent;font:inherit;font-size:13px;color:var(--ink);width:200px;padding:0}
 #pill input::placeholder{color:var(--faint)}
-#pill .sep{width:1px;height:16px;background:var(--line-strong);margin:0 4px 0 8px}
-#pill button{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;border-radius:999px;padding:3px 10px 3px 8px;font-size:13px;color:var(--ink)}
-#pill button:hover{background:var(--surface-2)}
+#pill .send{width:26px;height:26px}
 ::highlight(picking){background-color:var(--hl-pick)}
 ::highlight(quoted){background-color:var(--hl)}
+::highlight(quoted-hover),::highlight(quote-flash){background-color:var(--hl-pick)}
 
-/* 試作の切り替え。本番には持ち込まない */
-#variant{position:fixed;left:16px;bottom:16px;z-index:20;display:flex;align-items:center;gap:2px;font-size:12px;color:var(--faint);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:2px 2px 2px 10px;box-shadow:var(--shadow);transition:opacity .3s}
-body.hero #variant{opacity:0;pointer-events:none}
-#variant span{margin-right:6px}
-#variant button{border:0;background:transparent;border-radius:6px;padding:1px 8px;color:var(--sub)}
-#variant button[aria-pressed="true"]{background:var(--surface-3);color:var(--ink)}
 #zoom{position:fixed;right:16px;bottom:16px;z-index:20;border:1px solid var(--line);background:var(--surface);color:var(--sub);border-radius:8px;padding:2px 10px;font-size:12px;font-variant-numeric:tabular-nums;box-shadow:var(--shadow)}
 
 /* hero -> block morph */
@@ -228,17 +223,17 @@ body.hero #variant{opacity:0;pointer-events:none}
 </head>
 <body class="hero">
 <div id="viewport"><div id="dots"></div><div id="world"><svg id="links"></svg></div></div>
-<div id="hero"><div class="suggest" aria-label="例"></div></div>
+<div id="hero"></div>
 <div id="pop" hidden></div>
-<div id="pill" hidden><input aria-label="ここについて聞く" placeholder="ここについて聞く"><span class="sep"></span><button type="button" class="go"></button></div>
+<div id="pill" hidden><input aria-label="ここについて聞く" placeholder="ここについて聞く"><button type="button" class="send go" aria-label="送る"></button></div>
 <button id="zoom" type="button" hidden></button>
-<div id="variant" role="group" aria-label="追い質問の置き場所"><span>追い質問</span><button type="button" data-v="right" aria-pressed="true">右へ</button><button type="button" data-v="below" aria-pressed="false">下へ</button></div>
 
 <script>
 'use strict'
 /* ============ 小道具 ============ */
 const $ = (s, r = document) => r.querySelector(s)
-const FAST = new URLSearchParams(location.search).has('fast')
+const params = new URLSearchParams(location.search)
+const FAST = params.has('fast')
 const T = ms => FAST ? ms * 0.25 : ms
 const sleep = ms => new Promise(r => setTimeout(r, T(ms)))
 function h(tag, attrs = {}, ...kids) {
@@ -283,14 +278,18 @@ const optV = o => typeof o === 'string' ? o : o.v
 const short = (t, n = 18) => t.length > n ? t.slice(0, n) + '…' : t
 
 /* ============ 盤面のデータ ============
-   Thread  = { id, n, x, y, origin: { threadId, msgIndex, quote } | null, messages: Message[], composer: Composer }
-             x, y は置きたい位置。実際の位置は layout() が毎回これと大きさから決める (押し下げを書き戻さない)
+   Thread  = { id, n, kind: 'chat' | 'premise', x, y, origin: { threadId, msgIndex, quote } | null, beside: threadId | null,
+               pinned: { x, y } | null, anchor?, messages: Message[], composer: Composer | null }
+             x, y は根 (origin も beside も無いスレッド) の置きたい位置。追い質問の位置は持たず、layout() が毎回決める
+             beside は前提の隣で始めた会話。線は引かず、前提の右の列に並べるためだけに使う
+             pinned は人がドラッグして置いた位置。自動の配置はこれを動かさず、周りを流す
    Message = { role: 'user', parts: [{ text }], decisions, assumptions }
            | { role: 'ai', phase, blanks, filled, parts: Token[], more: Token[], decisions, assumptions }
              phase: thinking → drafting → waiting ⇄ continuing → done (done → continuing は選び直し)
    Token   = { p | h: Inline[] } | { ul: Inline[][] } | { quote: Inline[] } | { fence: lang, source, closed } | { image, alt }
    Inline  = 文字列 | { blank: key } | { ref: key }
-   Side    = { id, key, kind: 'diagram' | 'image', source, from: { threadId, msgIndex }, status, svg?, error?, stale? }
+   Side    = { id, n, key, kind: 'diagram' | 'image', source, from: { threadId, msgIndex }, status, pinned, svg?, error?, stale? }
+             status: streaming → ready | repairing → ready | error
              key は「スレッド:発言:何番目の図か」。選び直しで続きを書き直しても、同じ key の図はその場で描き直す
    Composer = { text, decisions, touched, attachments: [{ id, src }] }
    線は origin と from から毎回引く。どこにも保存しない */
@@ -298,17 +297,18 @@ const state = { threads: [], sides: [], view: { x: 0, y: 0, z: 1 }, mode: 'hero'
 let seq = 0
 const ui = new Map()            // thread / side の id → { el, ... }
 const newComposer = () => ({ text: '', decisions: {}, touched: new Set(), attachments: [] })
-function newThread({ x, y, origin = null }) {
-  const t = { id: 't' + (++seq), n: seq, x, y, origin, messages: [], composer: newComposer() }
+function newThread({ x = 0, y = 0, origin = null, beside = null, kind = 'chat' }) {
+  const t = { id: 't' + (++seq), n: seq, kind, x, y, origin, beside, pinned: null, messages: [], composer: kind === 'premise' ? null : newComposer() }
   state.threads.push(t)
   return t
 }
+const nodeOf = id => state.threads.find(t => t.id === id) || state.sides.find(s => s.id === id)
 const threadOf = id => state.threads.find(t => t.id === id)
 
 /* ============ 解釈の辞書（Feedforward） ============
    試作は LEXICON の語だけで下線を引く。本番では adapter.analyze を Kuromoji の候補 + /judge + /inventory に差し替える */
 const LEXICON = [
-  { id: 'plan', words: ['計画', 'プラン', '行程'], top: true, icon: 'list', sections: [
+  { id: 'plan', words: ['計画', 'プラン', '行程'], icon: 'list', sections: [
     { key: 'shape', q: 'どんな形で返しますか？', type: 'single', options: ['時間ごとの行程', '行き先の候補', '予算の見積もり'], def: '時間ごとの行程', say: ['欲しいのは', ''] }] },
   { id: 'weekend', words: ['週末', '連休'], icon: 'calendar', sections: [
     { key: 'days', q: '何日の旅ですか？', type: 'single', options: ['日帰り', '1泊2日', '2泊3日'], def: '1泊2日', say: ['日程は', ''] }] },
@@ -320,28 +320,25 @@ const LEXICON = [
       options: [{ v: '大原', x: 58, y: 4 }, { v: '嵐山', x: 4, y: 30 }, { v: '東山', x: 60, y: 32 }, { v: '京都駅周辺', x: 28, y: 56 }, { v: '伏見', x: 50, y: 74 }, { v: '宇治', x: 72, y: 88 }] }] },
   { id: 'reply', words: ['返事'], icon: 'messageQ', sections: [
     { key: 'scope', q: 'どの返事を描きますか？', type: 'single', options: ['空欄のある返事', '空欄のない返事'], def: '空欄のある返事', say: ['対象は', ''] }] },
-  { id: 'statechart', words: ['状態図'], top: true, icon: 'workflow', sections: [
+  { id: 'statechart', words: ['状態図'], icon: 'workflow', sections: [
     { key: 'depth', q: 'どこまで描きますか？', type: 'single', options: ['主な流れだけ', '失敗とやり直しも'], def: '失敗とやり直しも', say: ['描くのは', ''] }] },
-  { id: 'name', words: ['名前', 'ネーミング'], top: true, icon: 'tag', sections: [
+  { id: 'name', words: ['名前', 'ネーミング'], icon: 'tag', sections: [
     { key: 'count', q: 'どれくらい出しますか？', type: 'single', options: ['候補を5つ', '1つに絞る', '方向性だけ'], def: '候補を5つ', say: ['欲しいのは', ''] }] },
   { id: 'app', words: ['アプリ'], icon: 'layout', sections: [
     { key: 'kind', q: 'どんなアプリ？', type: 'chips', options: ['付箋ボード', 'メモ', '家計簿', '学習'], def: '付箋ボード', say: ['アプリは', ''] }] },
 ]
-const GENERIC_TOP = { id: 'gshape', words: [], top: true, icon: 'list', sections: [
-  { key: 'gshape', q: 'どんな形で返しますか？', type: 'single', options: ['短い提案', '詳しい手順', '選択肢の比較'], def: '短い提案', say: ['欲しいのは', ''] }] }
-const SECTION = Object.fromEntries([...LEXICON, GENERIC_TOP].flatMap(e => e.sections.map(s => [s.key, s])))
+const SECTION = Object.fromEntries(LEXICON.flatMap(e => e.sections.map(s => [s.key, s])))
 
-function analyze(text, { generic = true } = {}) {
+function analyze(text) {
   const hits = []
   for (const e of LEXICON) {
     let best = null
     for (const w of e.words) { const i = text.indexOf(w); if (i >= 0 && (!best || i < best.start)) best = { start: i, end: i + w.length } }
     if (best) hits.push({ ...best, entry: e })
   }
-  if (generic && !hits.length && text.trim().length >= 8) hits.push({ start: -1, end: -1, entry: GENERIC_TOP })
   hits.sort((a, b) => a.start - b.start)
   const out = []; let last = -1
-  for (const m of hits) { if (m.start >= 0 && m.start < last) continue; out.push(m); if (m.start >= 0) last = m.end }
+  for (const m of hits) { if (m.start < last) continue; out.push(m); last = m.end }
   return out
 }
 
@@ -456,14 +453,29 @@ const SCRIPTS = {
       return ['## [[feel]]から', ...list.slice(0, count === '1つに絞る' ? 1 : 5).map(([a, b]) => `- ${a}　${b}`)].join('\n')
     },
   }),
-  aboutQuote: quote => ({
-    blanks: { angle: { label: '見る点', q: 'どの点から見ますか？', type: 'single', options: ['響き', '意味', '覚えやすさ'] } },
-    draft: () => `「${short(quote, 24)}」について、もう少し掘り下げます。まず[[angle]]から見ます。`,
-    more: v => {
-      const notes = QUOTE_NOTES[quote]?.[v.angle] || [`「${short(quote, 12)}」を${v.angle}の点で、ほかの候補と並べる`, '似たものとの違いを一言で言えるかを確かめる', '迷う点があれば、そこを空欄にしてもう一度聞く']
-      return ['## [[angle]]', ...notes.map(s => '- ' + s)].join('\n')
-    },
-  }),
+  // 何を選んだかで、掘り下げる向きの選択肢を変える。名前の候補なら響きや意味、前提の一節なら理由や迷い
+  aboutQuote: (quote, from) => {
+    const isName = Object.values(NAMES).flat().some(([a]) => a.includes(quote) || quote.includes(a))
+    const angle = from === 'premise'
+      ? { label: '掘り下げる向き', q: 'どこを掘り下げますか？', type: 'single', options: ['決めた理由', '残っている迷い', '次に試すこと'] }
+      : isName
+        ? { label: '見る点', q: 'どの点から見ますか？', type: 'single', options: ['響き', '意味', '覚えやすさ'] }
+        : { label: '掘り下げる向き', q: 'どこを掘り下げますか？', type: 'single', options: ['なぜそうするか', 'ほかの案', '気をつけること'] }
+    const q = short(quote, 16)
+    const GENERAL = {
+      '決めた理由': [`「${q}」は、試作を触って迷った場面から決めた`, '同じ迷いがほかの場面でも出るかを確かめたい', '理由が一行で言えるなら、そのまま本文に残せる'],
+      '残っている迷い': ['実際の会話で同じ判断が通るかは、まだ見ていない', '迷いが一つに絞れたら、それを空欄にして聞き直す', '決めるのは、もう一度試作を触ってからでよい'],
+      '次に試すこと': [`「${q}」を、いちばん短い操作で確かめる形にする`, '試した結果を、前提のこの一節に書き戻す', '30分で終わらなければ、範囲を半分にする'],
+    }
+    return {
+      blanks: { angle },
+      draft: () => `「${short(quote, 24)}」について、もう少し掘り下げます。まず[[angle]]から見ます。`,
+      more: v => {
+        const notes = QUOTE_NOTES[quote]?.[v.angle] || GENERAL[v.angle] || [`「${short(quote, 12)}」を${v.angle}の点で、ほかの候補と並べる`, '似たものとの違いを一言で言えるかを確かめる', '迷う点があれば、そこを空欄にしてもう一度聞く']
+        return ['## [[angle]]', ...notes.map(s => '- ' + s)].join('\n')
+      },
+    }
+  },
   followUp: text => /道具|響き/.test(text) ? {
     blanks: {},
     draft: () => ['道具らしさを足すなら、手に取る物の名前を後ろに付けます。', '- となりペン　書く道具として', '- となり机　置き場所として', '- Tonari Pad　英字にして道具に寄せる'].join('\n'),
@@ -484,21 +496,44 @@ const SCRIPTS = {
       '文字の大きさ': ['## [[focus]]', '- 見出しと本文の差が小さく、どこから読むか迷う', '- 本文は一段下げ、見出しは一段上げる'],
     }[v.focus] || ['- ' + v.focus + 'を見直す']).join('\n'),
   }),
-  generic: text => ({
-    blanks: {
-      approach: { label: '進め方', q: 'どう進めますか？', type: 'single', options: ['案を広げる', '一つに絞る', '手順にする'] },
-      priority: { label: '軸', q: 'いちばん大事にしたいのは？', type: 'chips', options: ['早さ', '確実さ', 'わかりやすさ'] },
-    },
-    draft: () => `「${short(text)}」を受けて、[[approach]]方向で書きます。軸にするのは[[priority]]です。`,
-    more: v => {
-      const p = v.priority
-      const items = { '案を広げる': [`${p}を最優先にした案`, `${p}を少し譲って範囲を広げる案`, `あえて${p}を外して考える案`], '一つに絞る': [`${p}を満たす案を一つ選び、理由を三行で書く`], '手順にする': [`${p}について、いまの状態を書き出す`, '足りない点を一つ選ぶ', '次の30分でできることを決める'] }[v.approach] || [`${p}を軸に考える`]
-      return ['## [[approach]]', ...items.map(s => '- ' + s)].join('\n')
-    },
+  // 選択肢は送られた文の語から作る。文に無い軸 (早さなど) を AI が持ち込むと、何を選ばされているのか分からない
+  generic: text => {
+    const words = [...new Set(text.split(/[、。,.!?！？\s]+|について|として|から|まで|を|に|で|が|は|と|の|へ|も|や/))].filter(w => w.length >= 2 && !/(たい|する|した|ます|ない)$/.test(w)).slice(0, 4)
+    const focus = words.length >= 2 ? { focus: { label: '話の中心', q: 'まずどこから考えますか？', type: 'chips', options: words } } : {}
+    return {
+      blanks: { ...focus, approach: { label: '進め方', q: 'どう進めますか？', type: 'single', options: ['案を広げる', '一つに絞る', '手順にする'] } },
+      draft: () => words.length >= 2 ? `「${short(text)}」を受けて、[[focus]]から[[approach]]方向で書きます。` : `「${short(text)}」を受けて、[[approach]]方向で書きます。`,
+      more: v => {
+        const p = v.focus || short(text, 12)
+        const items = { '案を広げる': [`${p}を中心にした案`, `${p}から少し離れて範囲を広げる案`, `あえて${p}を後回しにする案`], '一つに絞る': [`${p}について案を一つ選び、理由を三行で書く`], '手順にする': [`${p}について、いまの状態を書き出す`, '足りない点を一つ選ぶ', '次の30分でできることを決める'] }[v.approach] || [`${p}から考える`]
+        return ['## [[approach]]', ...items.map(s => '- ' + s)].join('\n')
+      },
+    }
+  },
+  // 前提。本番では呼び出し元の会話から、スキルの引数 (例: ここまでの議論の内容をまとめて) に沿って作る
+  premise: () => ({
+    blanks: {},
+    draft: () => [
+      '## 作っているもの',
+      '- 返事を待つあいだに、AI が書き出した文の空欄を埋めて続きを作るボード',
+      '- Claude Code と Codex から呼び出し、呼び出し元のセッションを fork して返事を書く',
+      '## 付箋からチャットへ',
+      '- 付箋を並べる形では、どれが依頼でどれが返事かを見分けにくかった',
+      '- 中央の入力欄から始め、送った発言がそのままブロックになる形を試している',
+      '- 返事はブロックの中で流れ、決めるべきところは空欄のまま止まる',
+      '## 決めたこと',
+      '- 一節を選んで聞くと、AI が先に話すブロックが線でつながる',
+      '- 図と画像は本文に描かず、隣のブロックに出す',
+      '- 補足のラベルや説明は足さず、配置で関係を伝える',
+      '## まだ決めていないこと',
+      '- 手で動かしたブロックと自動の配置をどう両立させるか',
+      '- 壊れた Mermaid を AI に何回まで直させるか',
+    ].join('\n'),
   }),
 }
-function pickScript({ thread, aiFirst, text, quote, images }) {
-  if (aiFirst) return SCRIPTS.aboutQuote(quote)
+function pickScript({ thread, aiFirst, text, quote, images, premise }) {
+  if (premise) return SCRIPTS.premise(premise)
+  if (aiFirst) return SCRIPTS.aboutQuote(quote, threadOf(thread.origin.threadId)?.kind)
   const asked = thread.messages.filter(m => m.role === 'user').length
   if (asked > 1 || thread.origin) return /フロー|流れ図/.test(text) ? SCRIPTS.brokenFlow() : SCRIPTS.followUp(text)
   if (/京都|旅行/.test(text)) return SCRIPTS.travel()
@@ -543,7 +578,10 @@ function mdToTokens(md, blankKeys = new Set()) {
 /* ============ 生成元のつなぎ目 ============
    UI が知っているのは adapter だけ。
    analyze(text) → 下線の一覧。reply(ctx) → Plan = { blanks, draft(values) → Token[], more: ((values, signal) → Promise<Token[]>) | null }
-   本番では reply を server.mjs の /draft と /continue に、analyze を Kuromoji + /judge + /inventory に差し替える。
+   repairDiagram({ source, error }) → Promise<直した Mermaid>。描けなかった図を一度だけ AI に直させる
+   本番では reply を server.mjs の /draft と /continue に、analyze を Kuromoji + /judge + /inventory に、
+   repairDiagram を「ソースとエラーを渡して直したコードブロックだけを返させる」呼び出しに差し替える。
+   前提は reply に ctx.premise (スキルの引数) を渡して作る。本番では呼び出し元の会話から作る。
    まとめ (/summary) は state.threads と state.sides をそのまま読めばよい */
 async function scriptedReply(ctx) {
   await sleep(1500 + Math.random() * 900)
@@ -577,7 +615,16 @@ async function remoteReply({ text, quote, assumptions }) {
     },
   }
 }
-const adapter = { analyze, reply: scriptedReply }
+// 試作の AI は、閉じ忘れた [ を閉じるだけ直す。?repair=fail で直せなかった場合を試せる
+let repairCalls = 0
+async function scriptedRepair({ source }) {
+  repairCalls++
+  await sleep(1200)
+  if (params.get('repair') === 'fail') return source
+  return source.split('\n').map(l => l.replace(/\[([^[\]]*?)\s+(-->|---)/g, '[$1] $2')).join('\n')
+}
+const adapter = { analyze, reply: scriptedReply, repairDiagram: scriptedRepair }
+window.canvasDebug = { state, get repairCalls() { return repairCalls } }
 
 /* ============ Pele ============ */
 const pelePromise = import('https://cdn.jsdelivr.net/npm/pele@1.13.0/+esm').catch(e => { console.warn('[pele] 読み込めませんでした', e); return null })
@@ -603,15 +650,22 @@ function zoomAt(cx, cy, k) {
   view.x = cx - (cx - view.x) * z / view.z; view.y = cy - (cy - view.y) * z / view.z; view.z = z
   applyView()
 }
+let viewAnim = 0
 function animateView(to, ms = 380) {
-  const from = { ...view }, t0 = performance.now()
+  const from = { ...view }, t0 = performance.now(), id = ++viewAnim
   const step = t => {
+    if (id !== viewAnim) return
     const k = Math.min(1, (t - t0) / T(ms)), e = 1 - Math.pow(1 - k, 3)
     view.x = from.x + (to.x - from.x) * e; view.y = from.y + (to.y - from.y) * e; view.z = from.z + (to.z - from.z) * e
     applyView()
     if (k < 1) requestAnimationFrame(step)
   }
   requestAnimationFrame(step)
+}
+// 引用とその追い質問を行き来する。収まらないときだけ縮める
+function centerOn(r, pad = 48) {
+  const z = Math.max(0.35, Math.min(view.z, (innerWidth - 2 * pad) / r.w, (innerHeight - 2 * pad) / r.h))
+  animateView({ x: innerWidth / 2 - (r.x + r.w / 2) * z, y: innerHeight / 2 - (r.y + r.h / 2) * z, z }, 460)
 }
 // 人が始めた操作 (追い質問、図への移動) でだけ呼ぶ。返事が届いたことでは画面を動かさない
 function reveal(r, pad = 48) {
@@ -658,56 +712,124 @@ window.addEventListener('dragover', e => e.preventDefault())
 window.addEventListener('drop', e => e.preventDefault())
 
 /* ============ 配置 ============
-   置きたい位置 (thread.x/y) と大きさから、毎回すべての位置を決め直す。押し下げた位置は書き戻さない。
-   上にあるものから順に置き、重なったら下へずらす。図と画像は、元の発言の高さで、ブロックの右に並べる */
-const GAP = 24, SIDE_GAP = 32
+   毎回すべての位置を決め直す。入力は根の置きたい位置、ドラッグで置いた位置、測った大きさと線の起点の高さだけで、
+   押し下げた位置はどこにも書き戻さない。
+   木の配置: ブロックの右に一本の列を作り、追い質問と図・画像を、元の一節の高さの順に並べる。
+   列の中では、上の項目の部分木 (その先の列も含む外形) の下端より上には置かない。
+   こうすると線はすべて「元の右端と列の左端の間の溝」の中に収まり、並び順が起点の順と同じなので交わらない。
+   図だけ別の列に分けると、その列を追い質問への線が横切るので分けない。
+   ドラッグしたものは固定になり、それを根にした部分木ごと先に置く。自動の項目はそれを避けて下へ流れる */
+const GAP = 24, COL_GAP = 72, THREAD_ENTRY = 26, SIDE_ENTRY = 18
 let placed = new Map(), layoutQueued = false
 const ro = new ResizeObserver(() => scheduleLayout())
 function scheduleLayout() { if (!layoutQueued) { layoutQueued = true; requestAnimationFrame(layout) } }
-function overlapsAny(r, rects) {
-  return rects.find(o => r.x < o.x + o.w + GAP && r.x + r.w + GAP > o.x && r.y < o.y + o.h + GAP && r.y + r.h + GAP > o.y)
-}
-function settle(r, rects) {
-  for (let k = 0, o; k < 200 && (o = overlapsAny(r, rects)); k++) r.y = o.y + o.h + GAP
-  return r
-}
-function offsetIn(el, root) {
-  let y = 0
-  for (let n = el; n && n !== root; n = n.offsetParent) y += n.offsetTop
-  return y
-}
 function setPos(el, r) { el.style.left = r.x + 'px'; el.style.top = r.y + 'px' }
-// 続きを書き直す間はチップが消える。そのあいだは最後にあった高さに留め、図を上下させない
-function sideAnchor(s, block) {
-  const chip = block.querySelector(`.sidechip[data-side="${s.id}"]`)
-  if (chip) return (s.anchor = offsetIn(chip, block) - 14)
+const midOf = (rect, block) => (rect.top + rect.height / 2 - block.getBoundingClientRect().top) / view.z
+
+// 線の起点の高さ (元のブロックの上端から)。続きを書き直す間は一節やチップが消えるので、最後に測った高さに留める
+function quoteAnchor(t) {
+  const block = ui.get(t.origin.threadId)?.el, first = quoteRange(t)?.getClientRects()[0]
+  if (block && first) t.anchor = midOf(first, block)
+  return t.anchor ?? THREAD_ENTRY
+}
+function sideAnchor(s) {
+  const block = ui.get(s.from.threadId)?.el
+  const chip = block?.querySelector(`.sidechip[data-side="${s.id}"]`)
+  if (chip) return (s.anchor = midOf(chip.getBoundingClientRect(), block))
   if (s.anchor != null) return s.anchor
-  const m = ui.get(s.from.threadId).msgEls[s.from.msgIndex]
-  return m ? offsetIn(m, block) : 0
+  const m = ui.get(s.from.threadId)?.msgEls[s.from.msgIndex]
+  return m ? midOf(m.getBoundingClientRect(), block) : SIDE_ENTRY
+}
+function measure() {
+  const nodes = new Map()
+  for (const t of state.threads) {
+    const el = ui.get(t.id).el
+    nodes.set(t.id, { id: t.id, n: t.n, w: el.offsetWidth, h: el.offsetHeight, parent: t.origin?.threadId ?? t.beside, anchor: t.origin ? quoteAnchor(t) : 0, entry: t.origin ? THREAD_ENTRY : 0, pinned: t.pinned, home: { x: t.x, y: t.y } })
+  }
+  for (const s of state.sides) {
+    const el = ui.get(s.id).el
+    nodes.set(s.id, { id: s.id, n: s.n, w: el.offsetWidth, h: el.offsetHeight, parent: s.from.threadId, anchor: sideAnchor(s), entry: SIDE_ENTRY, pinned: s.pinned })
+  }
+  return nodes
+}
+const hits = (a, b, m = GAP) => a.x < b.x + b.w + m && a.x + a.w + m > b.x && a.y < b.y + b.h + m && a.y + a.h + m > b.y
+
+// nodes → Map(id → { x, y, w, h })。DOM に触らない
+function computeLayout(nodes) {
+  const kids = new Map()
+  const isRoot = nd => nd.pinned || !nd.parent || !nodes.has(nd.parent)
+  for (const nd of nodes.values()) if (!isRoot(nd)) kids.set(nd.parent, [...(kids.get(nd.parent) || []), nd])
+  for (const list of kids.values()) list.sort((a, b) => a.anchor - b.anchor || a.n - b.n)
+  const memo = new Map()
+  // 部分木の外形。原点はそのブロックの左上
+  function extent(id) {
+    if (memo.has(id)) return memo.get(id)
+    const nd = nodes.get(id)
+    let top = 0, bottom = nd.h, right = nd.w, cursor = -Infinity
+    for (const k of kids.get(id) || []) {
+      const e = extent(k.id), y = Math.max(k.anchor - k.entry, cursor - e.top)
+      top = Math.min(top, y + e.top); bottom = Math.max(bottom, y + e.bottom); right = Math.max(right, nd.w + COL_GAP + e.right)
+      cursor = y + e.bottom + GAP
+    }
+    const r = { top, bottom, right }
+    memo.set(id, r)
+    return r
+  }
+  function placeTree(id, x, y, out, obstacles) {
+    const nd = nodes.get(id)
+    out.boxes.push({ id, x, y, w: nd.w, h: nd.h })
+    let top = y, bottom = y + nd.h, cursor = -Infinity
+    const colX = x + nd.w + COL_GAP, ends = []
+    for (const k of kids.get(id) || []) {
+      const e = extent(k.id)
+      let ky = Math.max(y + k.anchor - k.entry, cursor - e.top)
+      for (let guard = 0, o; guard < 50 && (o = obstacles.find(o => hits({ x: colX, y: ky + e.top, w: e.right, h: e.bottom - e.top }, o))); guard++) ky = o.y + o.h + GAP - e.top
+      const r = placeTree(k.id, colX, ky, out, obstacles)
+      top = Math.min(top, r.top); bottom = Math.max(bottom, r.bottom)
+      cursor = r.bottom + GAP
+      ends.push(y + k.anchor, ky + k.entry)
+    }
+    // 線が通る溝。ほかの木のブロックがここに入らないようにする
+    if (ends.length) out.gaps.push({ x: x + nd.w, y: Math.min(...ends), w: COL_GAP, h: Math.max(...ends) - Math.min(...ends) })
+    return { top, bottom }
+  }
+  const roots = [...nodes.values()].filter(isRoot)
+  const pinned = roots.filter(nd => nd.pinned).sort((a, b) => a.n - b.n)
+  const free = roots.filter(nd => !nd.pinned).sort((a, b) => a.home.y - b.home.y || a.n - b.n)
+  // 固定したブロックは、どの順で置いても最初から障害物にする
+  const fixed = pinned.map(nd => ({ id: nd.id, x: nd.pinned.x, y: nd.pinned.y, w: nd.w, h: nd.h }))
+  const done = { boxes: [], gaps: [] }
+  for (const nd of pinned) placeTree(nd.id, nd.pinned.x, nd.pinned.y, done, [...fixed.filter(b => b.id !== nd.id), ...done.boxes.filter(b => !fixed.some(f => f.id === b.id))])
+  for (const nd of free) {
+    let y = nd.home.y
+    for (let guard = 0; guard < 60; guard++) {
+      const trial = { boxes: [], gaps: [] }
+      placeTree(nd.id, nd.home.x, y, trial, done.boxes)
+      let push = 0
+      for (const a of [...trial.boxes, ...trial.gaps]) for (const b of [...done.boxes, ...done.gaps]) if (hits(a, b, a.id && b.id ? GAP : 4)) push = Math.max(push, b.y + b.h + GAP - a.y)
+      if (!push) { done.boxes.push(...trial.boxes); done.gaps.push(...trial.gaps); break }
+      y += push
+    }
+  }
+  return new Map(done.boxes.map(b => [b.id, b]))
 }
 function layout() {
   layoutQueued = false
-  const rects = [], P = new Map()
-  for (const t of [...state.threads].sort((a, b) => a.y - b.y || a.n - b.n)) {
-    const { el } = ui.get(t.id)
-    const r = settle({ x: t.x, y: t.y, w: el.offsetWidth, h: el.offsetHeight }, rects)
-    setPos(el, r); rects.push(r); P.set(t.id, r)
-    let below = -Infinity
-    for (const s of state.sides) {
-      if (s.from.threadId !== t.id) continue
-      const sel = ui.get(s.id).el
-      const sr = settle({ x: r.x + r.w + SIDE_GAP, y: Math.max(r.y + sideAnchor(s, el), below), w: sel.offsetWidth, h: sel.offsetHeight }, rects)
-      setPos(sel, sr); rects.push(sr); P.set(s.id, sr); below = sr.y + sr.h + 16
-    }
-  }
-  placed = P
+  placed = computeLayout(measure())
+  for (const [id, r] of placed) setPos(ui.get(id).el, r)
   drawLinks()
 }
-function layoutNow() { layout() }
+const layoutNow = layout
 
-/* ============ 線 ============ */
+/* ============ 線 ============
+   元の右端の、一節 (図ならチップ) の高さから、行き先の左端へ。行き先を左へ動かしたときは逆向きに引く */
 const busy = phase => phase === 'thinking' || phase === 'drafting' || phase === 'continuing'
-const curve = (x1, y1, x2, y2) => { const dx = Math.max(24, (x2 - x1) / 2); return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}` }
+function curve(S, y1, U, y2) {
+  const rightward = U.x >= S.x + S.w / 2
+  const x1 = rightward ? S.x + S.w : S.x, x2 = rightward ? U.x : U.x + U.w
+  const dx = Math.max(24, Math.abs(x2 - x1) / 2) * (rightward ? 1 : -1)
+  return { x1, d: `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}` }
+}
 function quoteRange(t) {
   const src = threadOf(t.origin.threadId), m = src && ui.get(src.id)?.msgEls[t.origin.msgIndex]
   return m ? findQuoteRange(m, t.origin.quote) : null
@@ -720,26 +842,16 @@ function drawLinks() {
     const S = placed.get(t.origin.threadId), U = placed.get(t.id)
     if (!S || !U) continue
     const range = quoteRange(t)
-    let y1 = S.y + 24, x1 = S.x + S.w
-    if (range) {
-      quoted.push(range)
-      const rects = range.getClientRects(), last = rects[rects.length - 1]
-      if (last) y1 = toWorld(0, last.top + last.height / 2).y
-    }
+    if (range) quoted.push(range)
     const live = busy(t.messages.at(-1)?.phase) ? ' class="live"' : ''
-    // 下に置いたブロックへは、元のブロックの左の余白を通す
-    if (U.x < x1 - 40 && U.y > S.y + S.h - 8) {
-      const xl = S.x - 28
-      svg += `<path${live} d="M${S.x},${y1} C${xl},${y1} ${xl},${y1} ${xl},${y1 + 28} L${xl},${U.y - 4} C${xl},${U.y + 26} ${xl},${U.y + 26} ${U.x},${U.y + 26}"/><circle${live} cx="${S.x}" cy="${y1}" r="2.5"/>`
-    } else svg += `<path${live} d="${curve(x1, y1, U.x, U.y + 26)}"/><circle${live} cx="${x1}" cy="${y1}" r="2.5"/>`
+    const y1 = S.y + (t.anchor ?? THREAD_ENTRY), c = curve(S, y1, U, U.y + THREAD_ENTRY)
+    svg += `<path${live} data-from="${S.id}" data-to="${U.id}" d="${c.d}"/><circle${live} cx="${c.x1}" cy="${y1}" r="2.5"/>`
   }
   for (const s of state.sides) {
     const A = placed.get(s.from.threadId), B = placed.get(s.id)
     if (!A || !B) continue
-    const block = ui.get(s.from.threadId).el
-    const y1 = A.y + sideAnchor(s, block) + 14
-    const live = s.status === 'streaming' ? ' class="live"' : ''
-    svg += `<path${live} d="${curve(A.x + A.w, y1, B.x, Math.max(B.y + 18, Math.min(y1, B.y + B.h - 18)))}"/>`
+    const live = s.status === 'streaming' || s.status === 'repairing' ? ' class="live"' : ''
+    svg += `<path${live} data-from="${A.id}" data-to="${B.id}" d="${curve(A, A.y + (s.anchor ?? SIDE_ENTRY), B, B.y + SIDE_ENTRY).d}"/>`
   }
   linksSvg.innerHTML = svg
   if (window.CSS?.highlights) CSS.highlights.set('quoted', new Highlight(...quoted))
@@ -856,17 +968,16 @@ const WIDGETS = {
 /* ============ 入力欄（Composer） ============
    ミラーと変換中 (IME) の扱いは board.html の付箋と同じ。変換中は下線を隠し、確定してから解析する */
 const composerUI = new WeakMap()
-function mountComposer(c, { variant, placeholder, onSend, generic = () => true }) {
+function mountComposer(c, { variant, placeholder, onSend }) {
   const ta = h('textarea', { rows: 1, placeholder, 'aria-label': placeholder })
   ta.value = c.text
   const mirror = h('div', { class: 'mirror', 'aria-hidden': 'true' })
   const atts = h('div', { class: 'atts', hidden: true })
   const file = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true })
   const attach = h('button', { class: 'ib attach', type: 'button', 'aria-label': '画像を添える' }, icon('plus', variant === 'hero' ? 18 : 16))
-  const pill = h('button', { class: 'pillbtn', type: 'button', hidden: true })
   const send = h('button', { class: 'send', type: 'button', 'aria-label': '送る', disabled: true }, icon('arrowUp', variant === 'hero' ? 17 : 15))
-  const el = h('div', { class: 'composer ' + (variant === 'hero' ? 'hero' : 'compact') }, atts, h('div', { class: 'main' }, h('div', { class: 'field' }, mirror, ta)), h('div', { class: 'tools' }, attach, pill, send), file)
-  const u = { el, ta, mirror, atts, pill, send, matches: [], composing: false, generic }
+  const el = h('div', { class: 'composer ' + (variant === 'hero' ? 'hero' : 'compact') }, atts, h('div', { class: 'main' }, h('div', { class: 'field' }, mirror, ta)), h('div', { class: 'tools' }, attach, send), file)
+  const u = { el, ta, mirror, atts, send, matches: [], composing: false }
   composerUI.set(c, u)
 
   let timer
@@ -920,12 +1031,12 @@ function renderAtts(c) {
 }
 function analyzeComposer(c) {
   const u = composerUI.get(c)
-  u.matches = adapter.analyze(c.text, { generic: u.generic() })   // 返信では「どんな形で返すか」を聞かない。形はスレッドの最初で決まっている
+  u.matches = adapter.analyze(c.text)
   for (const m of u.matches) for (const s of m.entry.sections) if (s.def !== undefined && !(s.key in c.decisions)) c.decisions[s.key] = s.def
-  renderMirror(c); renderPill(c)
+  renderMirror(c)
 }
 function openComposerPop(c, anchor, sections) {
-  openPop(anchor, sections, k => c.decisions[k], (k, v) => { c.decisions[k] = v; c.touched.add(k); renderMirror(c); renderPill(c) })
+  openPop(anchor, sections, k => c.decisions[k], (k, v) => { c.decisions[k] = v; c.touched.add(k); renderMirror(c) })
 }
 const esc = s => s.replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]))
 function renderMirror(c) {
@@ -940,16 +1051,6 @@ function renderMirror(c) {
   u.mirror.innerHTML = html + esc(t.slice(i)) + ' '
   u.mirror.classList.remove('stale')
 }
-// 送る前は、いちばん大きな前提だけを入力欄の道具の列に出す (モデルを選ぶ欄の位置)
-function renderPill(c) {
-  const u = composerUI.get(c)
-  const m = u.matches.find(m => m.entry.top)
-  if (!m) { u.pill.hidden = true; return }
-  const sec = m.entry.sections[0]
-  u.pill.replaceChildren(icon(m.entry.icon, 14), h('span', { class: 'v' }, fmt(sec, c.decisions[sec.key])), h('span', { class: 'chev' }, icon('chevronDown', 13)))
-  u.pill.onclick = () => openComposerPop(c, u.pill, [sec])
-  u.pill.hidden = false
-}
 // 送った内容を発言にして、入力欄を空に戻す
 function takeMessage(c) {
   const u = composerUI.get(c)
@@ -960,19 +1061,20 @@ function takeMessage(c) {
   const atts = c.attachments
   Object.assign(c, newComposer())
   u.ta.value = ''; u.matches = []
-  renderMirror(c); renderPill(c); renderAtts(c)
+  renderMirror(c); renderAtts(c)
   return { msg, atts }
 }
 
 /* ============ ブロック ============ */
-function mountThread(t, { draft = false, nested = false } = {}) {
+function mountThread(t, { draft = false } = {}) {
   const msgs = h('div', { class: 'msgs' })
-  const comp = mountComposer(t.composer, { variant: 'compact', placeholder: draft ? '何を考えますか？' : '返信', onSend: () => sendInThread(t), generic: () => !t.messages.length })
-  const el = h('article', { class: 'block' + (draft ? ' draft' : '') + (nested ? ' nested' : ''), 'data-thread': t.id },
-    t.origin ? h('div', { class: 'quoteline' }, t.origin.quote) : null, msgs, comp.el)
+  const comp = t.composer && mountComposer(t.composer, { variant: draft && t.beside ? 'hero' : 'compact', placeholder: draft ? '何を考えますか？' : '返信', onSend: () => sendInThread(t) })
+  const el = h('article', { class: 'block' + (t.kind === 'premise' ? ' premise' : '') + (draft ? ' draft' : '') + (t.beside ? ' lead' : ''), 'data-thread': t.id },
+    t.origin ? h('div', { class: 'quoteline' }, t.origin.quote) : null, msgs, comp?.el)
   world.append(el); ro.observe(el)
   ui.set(t.id, { el, msgs, msgEls: [], comp })
-  if (draft) {
+  // 前提の隣の入力欄は、空のまま離れても残す
+  if (draft && !t.beside) {
     // 何も書かずに離れた入力欄は消す
     el.addEventListener('focusout', () => setTimeout(() => {
       if (!t.messages.length && !t.composer.text.trim() && !t.composer.attachments.length && !el.contains(document.activeElement) && popCtx === null) removeThread(t)
@@ -1014,7 +1116,7 @@ function sendInThread(t) {
   const { msg, atts } = takeMessage(t.composer)
   t.messages.push(msg)
   const i = t.messages.length - 1
-  if (u.el.classList.contains('draft')) { u.el.classList.remove('draft'); u.comp.ta.placeholder = '返信' }
+  if (u.el.classList.contains('draft')) { u.el.classList.remove('draft'); u.comp.ta.placeholder = '返信'; u.comp.el.classList.replace('hero', 'compact') }
   mountUserMsg(t, i)
   atts.forEach((a, k) => addUserImage(t, i, a, k))
   // 入力欄はブロックの下へ移る。飛ばずに滑らせる
@@ -1054,16 +1156,16 @@ function fail(t, i, e, retry) {
   st.replaceChildren(h('span', {}, e.message), again)
   scheduleLayout()
 }
-async function startReply(t, { aiFirst = false } = {}) {
-  const user = aiFirst ? null : t.messages.at(-1)
+async function startReply(t, { aiFirst = false, premise = null } = {}) {
+  const user = aiFirst || premise ? null : t.messages.at(-1)
   const m = { role: 'ai', phase: 'thinking', blanks: {}, filled: {}, parts: [], more: [], decisions: user?.decisions ?? {}, assumptions: user?.assumptions ?? [] }
   t.messages.push(m)
   const i = t.messages.length - 1
   const r = { plan: null, gen: 0, abort: null, timer: null, drafted: false }
   replies.set(m, r)
   mountAiMsg(t, i); setPhase(t, i, 'thinking')
-  const ctx = { thread: t, msgIndex: i, aiFirst, text: user?.parts.map(p => p.text).join('') ?? '', quote: t.origin?.quote ?? null, images: user ? state.sides.filter(s => s.from.threadId === t.id && s.from.msgIndex === i - 1).length : 0, assumptions: m.assumptions.map(a => a.say[0] + a.value + a.say[1]) }
-  try { r.plan = await adapter.reply(ctx) } catch (e) { fail(t, i, e, () => { t.messages.splice(i, 1); msgEl(t, i).remove(); startReply(t, { aiFirst }) }); return }
+  const ctx = { thread: t, msgIndex: i, aiFirst, premise, text: user?.parts.map(p => p.text).join('') ?? '', quote: t.origin?.quote ?? null, images: user ? state.sides.filter(s => s.from.threadId === t.id && s.from.msgIndex === i - 1).length : 0, assumptions: m.assumptions.map(a => a.say[0] + a.value + a.say[1]) }
+  try { r.plan = await adapter.reply(ctx) } catch (e) { fail(t, i, e, () => { t.messages.splice(i, 1); msgEl(t, i).remove(); startReply(t, { aiFirst, premise }) }); return }
   m.blanks = r.plan.blanks
   setPhase(t, i, 'drafting'); announce(t)
   m.parts = r.plan.draft(values(m))
@@ -1156,7 +1258,7 @@ function ensureSide(t, i, ord, kind) {
   let s = state.sides.find(s => s.key === key)
   if (s && s.kind !== kind) { removeSide(s); s = null }
   if (!s) {
-    s = { id: 's' + (++seq), key, ord, kind, source: '', from: { threadId: t.id, msgIndex: i }, status: 'streaming' }
+    s = { id: 's' + (++seq), n: seq, key, ord, kind, source: '', from: { threadId: t.id, msgIndex: i }, status: 'streaming', pinned: null }
     state.sides.push(s)
     const el = h('aside', { class: 'side ' + kind, 'data-side': s.id })
     world.append(el); ro.observe(el); ui.set(s.id, { el })
@@ -1181,7 +1283,7 @@ function sideChip(s, label) {
 }
 function renderChips(s) {
   for (const b of document.querySelectorAll(`.sidechip[data-side="${s.id}"]`)) {
-    b.classList.toggle('pending', s.status === 'streaming')
+    b.classList.toggle('pending', s.status === 'streaming' || s.status === 'repairing')
     b.classList.toggle('error', s.status === 'error')
   }
 }
@@ -1189,7 +1291,8 @@ function renderSide(s) {
   const u = ui.get(s.id)
   if (!u) return
   u.el.classList.toggle('stale', !!s.stale)
-  if (s.kind === 'image') u.el.replaceChildren(s.status === 'ready' ? h('img', { src: s.source, alt: s.alt || '' }) : h('div', { class: 'ph' }))
+  u.el.classList.toggle('repairing', s.status === 'repairing')
+  if (s.kind === 'image') u.el.replaceChildren(s.status === 'ready' ? h('img', { src: s.source, alt: s.alt || '', draggable: 'false' }) : h('div', { class: 'ph' }))
   else if (s.status === 'ready') { const d = h('div', { class: 'dia' }); d.innerHTML = s.svg; fitSvg(d.firstElementChild); u.el.replaceChildren(d) }
   else if (s.status === 'error') u.el.replaceChildren(h('div', { class: 'err' }, icon('alert', 13), h('span', {}, s.error)), h('pre', { class: 'code' }, s.source))
   else if (!s.svg) u.el.replaceChildren(h('pre', { class: 'src' }, s.pending || ' '))
@@ -1218,11 +1321,18 @@ async function streamDiagram(t, i, box, tok, ord, alive) {
   if (!tok.closed) { Object.assign(s, { status: 'error', error: 'コードブロックが閉じていません', svg: null, stale: false }); renderSide(s); return }
   const pele = await pelePromise
   if (!alive()) return
-  try {
-    if (!pele) throw new Error('Pele を読み込めませんでした')
-    Object.assign(s, { svg: pele.render(s.source, { fontFamily: getComputedStyle(document.body).fontFamily }).svg, status: 'ready', error: null, stale: false })
+  const draw = src => pele.render(src, { fontFamily: getComputedStyle(document.body).fontFamily }).svg
+  const failed = e => ({ svg: null, status: 'error', error: '図にできませんでした。' + String(e.message).split('\n')[0], stale: false })
+  if (!pele) Object.assign(s, failed(new Error('Pele を読み込めませんでした')))
+  else try {
+    Object.assign(s, { svg: draw(s.source), status: 'ready', error: null, stale: false })
   } catch (e) {
-    Object.assign(s, { svg: null, status: 'error', error: '図にできませんでした。' + String(e.message).split('\n')[0], stale: false })
+    // 描けない図は、ソースとエラーを渡して AI に一度だけ直させる。直したものも描けなければソースを見せる
+    s.status = 'repairing'; renderSide(s)
+    let fixed
+    try { fixed = await adapter.repairDiagram({ source: s.source, error: String(e.message) }) } catch { fixed = null }
+    if (!alive()) return
+    try { if (fixed == null) throw e; Object.assign(s, { svg: draw(fixed), source: fixed, status: 'ready', error: null, stale: false }) } catch (e2) { Object.assign(s, failed(e2)) }
   }
   renderSide(s)
   await sleep(200)
@@ -1246,9 +1356,10 @@ function addUserImage(t, i, a, k) {
   renderSide(s)
 }
 
-/* ============ 選んだ一節について聞く ============ */
+/* ============ 選んだ一節について聞く ============
+   選ぶと、その下に投稿と同じ入力欄が出る。書いて送れば人の問いから、空のまま送れば AI が先に話して始まる */
 const pill = $('#pill'), pillInput = $('#pill input'), pillGo = $('#pill .go')
-pillGo.append(icon('messageQ', 14), '詳しく')
+pillGo.append(icon('arrowUp', 14))
 let pick = null   // { threadId, msgIndex, quote, range }
 function hidePill() {
   if (pill.hidden) return
@@ -1276,48 +1387,128 @@ document.addEventListener('mouseup', e => {
   })
 })
 pillGo.addEventListener('pointerdown', e => e.preventDefault())
-pillGo.onclick = () => pick && spawn(pick, '')
+pillGo.onclick = () => pick && spawn(pick, pillInput.value.trim())
 pillInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && pick) { e.preventDefault(); spawn(pick, pillInput.value.trim()) } })
-// 追い質問のブロックをどこに置くか (試作の切り替え)。
-//   right  元のブロックとその図の列の右に、選んだ一節の高さで置く。木は右へ伸びる
-//   below  元のブロックのすぐ下に少し字下げして差し込み、その下にあるものを押し下げる。木は下へ伸びる
-const FOLLOW = {
-  right: (S, right, quoteY) => ({ x: right + 72, y: quoteY - 30 }),
-  below: (S) => ({ x: S.x + 40, y: S.y + S.h + 36, nested: true }),   // 字下げした分だけ幅を詰め、右端を元にそろえる。右の図の列にかからない
-}
-let follow = new URLSearchParams(location.search).get('follow') === 'below' ? 'below' : 'right'
-for (const b of document.querySelectorAll('#variant button')) {
-  b.setAttribute('aria-pressed', b.dataset.v === follow)
-  b.onclick = () => { follow = b.dataset.v; for (const x of document.querySelectorAll('#variant button')) x.setAttribute('aria-pressed', x === b) }
-}
-// AI が先に話し、入力欄にはフォーカスを移さない
-function spawn({ threadId, msgIndex, quote, range }, question) {
-  const S = placed.get(threadId)
-  const right = Math.max(S.x + S.w, ...state.sides.filter(s => s.from.threadId === threadId).map(s => { const r = placed.get(s.id); return r ? r.x + r.w : 0 }))
-  const p = FOLLOW[follow](S, right, toWorld(0, range.getBoundingClientRect().top).y)
-  const t = newThread({ x: Math.round(p.x), y: Math.round(p.y), origin: { threadId, msgIndex, quote } })
+// 位置は決めない。layout() が元の一節の高さに置く。AI が先に話すときは、入力欄にフォーカスを移さない
+function spawn({ threadId, msgIndex, quote }, question) {
+  const t = newThread({ origin: { threadId, msgIndex, quote } })
   hidePill(); getSelection().removeAllRanges()
-  mountThread(t, { nested: !!p.nested })
+  mountThread(t)
   if (question) { t.messages.push({ role: 'user', parts: [{ text: question }], decisions: {}, assumptions: [] }); mountUserMsg(t, 0); startReply(t) }
   else startReply(t, { aiFirst: true })
   layoutNow()
   reveal(placed.get(t.id))
 }
 
-/* ============ 最初の入力欄 → ブロック ============ */
+/* ============ 引用と追い質問を行き来する ============
+   元の一節を押すと追い質問のブロックへ、追い質問の上の引用を押すと元の一節へ、画面を寄せる */
+const followUpsOf = threadId => state.threads.filter(t => t.origin?.threadId === threadId)
+function quoteAt(textEl, x, y) {
+  const block = textEl.closest('.block')
+  for (const t of block ? followUpsOf(block.dataset.thread) : []) {
+    const r = quoteRange(t)
+    if (r && [...r.getClientRects()].some(q => x >= q.left - 1 && x <= q.right + 1 && y >= q.top - 1 && y <= q.bottom + 1)) return { t, r }
+  }
+  return null
+}
+function flash(el) { el.classList.remove('fresh'); void el.offsetWidth; el.classList.add('fresh') }
+function showThread(t) {
+  const r = placed.get(t.id)
+  if (!r) return
+  centerOn(r); flash(ui.get(t.id).el)
+}
+function showQuote(t) {
+  const r = quoteRange(t)
+  if (!r) return
+  const b = r.getBoundingClientRect(), p = toWorld(b.left, b.top)
+  centerOn({ x: p.x, y: p.y, w: b.width / view.z, h: b.height / view.z })
+  window.CSS?.highlights?.set('quote-flash', new Highlight(r))
+  setTimeout(() => window.CSS?.highlights?.delete('quote-flash'), T(1400))
+}
+world.addEventListener('click', e => {
+  const sel = getSelection()
+  if (sel && !sel.isCollapsed) return
+  const line = e.target.closest('.quoteline')
+  if (line) { const t = threadOf(line.closest('.block').dataset.thread); if (t?.origin) showQuote(t); return }
+  const text = e.target.closest('.msg.ai .text'), hit = text && quoteAt(text, e.clientX, e.clientY)
+  if (hit) showThread(hit.t)
+})
+let hoverText = null
+world.addEventListener('pointermove', e => {
+  if (e.buttons) return
+  const text = e.target.closest?.('.msg.ai .text') || null, hit = text && quoteAt(text, e.clientX, e.clientY)
+  if (hoverText && hoverText !== text) hoverText.classList.remove('onquote')
+  hoverText = text
+  text?.classList.toggle('onquote', !!hit)
+  if (hit) CSS.highlights?.set('quoted-hover', new Highlight(hit.r))
+  else CSS.highlights?.delete('quoted-hover')
+})
+
+/* ============ ドラッグ ============
+   文字と入力欄の外 (ブロックの縁、発言の間、引用の行。図と画像は全体) をつかんで動かす。文字の上は選択に使う。
+   動かしたものは pinned になり、自動の配置はその位置を変えずに周りを流す。つかんだものの先の列は一緒に動く。
+   縁をダブルクリックすると自動の配置に戻る */
+const NOT_GRIP = 'textarea, input, button, .text, .bubble, .composer'
+let suppressClick = false
+world.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return
+  const host = e.target.closest('.block, .side')
+  if (!host || e.target.closest(NOT_GRIP)) return
+  const node = nodeOf(host.dataset.thread || host.dataset.side), r0 = node && placed.get(node.id)
+  if (!r0) return
+  e.preventDefault()
+  const ox = e.clientX, oy = e.clientY
+  let moved = false
+  const move = m => {
+    if (!moved && Math.hypot(m.clientX - ox, m.clientY - oy) < 4) return
+    if (!moved) { moved = true; host.classList.add('dragging'); document.body.classList.add('dragging'); closePop(); hidePill() }
+    node.pinned = { x: Math.round(r0.x + (m.clientX - ox) / view.z), y: Math.round(r0.y + (m.clientY - oy) / view.z) }
+    layout()
+  }
+  const up = () => {
+    removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up)
+    host.classList.remove('dragging'); document.body.classList.remove('dragging')
+    if (moved) { suppressClick = true; setTimeout(() => { suppressClick = false }) }
+  }
+  addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up)
+})
+world.addEventListener('click', e => { if (suppressClick) { e.stopPropagation(); e.preventDefault() } }, true)
+world.addEventListener('dblclick', e => {
+  const host = e.target.closest('.block, .side')
+  const node = host && !e.target.closest(NOT_GRIP) && nodeOf(host.dataset.thread || host.dataset.side)
+  if (node?.pinned) { node.pinned = null; layout() }
+})
+
+/* ============ 始まり ============
+   ?scenario=travel|flow|naming は入力欄に例文を入れておく (画面には出さない、試すための入口)
+   ?premise=<スキルの引数> は、左に前提を置き、その右の入力欄から始める */
+const SCENARIOS = { travel: '週末に家族で京都旅行の計画を立てたい', flow: 'AIの返事が届くまでの流れを状態図にしたい', naming: 'アプリの名前を考えたい' }
+function prefill(c, u) {
+  const text = SCENARIOS[params.get('scenario')]
+  if (!text) return
+  c.text = text; u.ta.value = text; u.sync(); analyzeComposer(c)
+  u.ta.setSelectionRange(text.length, text.length)
+}
 const hero = { composer: newComposer() }
 const heroUI = mountComposer(hero.composer, { variant: 'hero', placeholder: '何を考えますか？', onSend: sendFromHero })
 $('#hero').prepend(heroUI.el)
-const EXAMPLES = [
-  ['京都旅行', '週末に家族で京都旅行の計画を立てたい'],
-  ['返事の流れ', 'AIの返事が届くまでの流れを状態図にしたい'],
-  ['アプリの名前', 'アプリの名前を考えたい'],
-]
-for (const [label, text] of EXAMPLES) $('.suggest').append(h('button', { type: 'button', onclick: () => {
-  hero.composer.text = text; heroUI.ta.value = text; heroUI.sync(); analyzeComposer(hero.composer)
-  heroUI.ta.focus(); heroUI.ta.setSelectionRange(text.length, text.length)
-} }, label))
-heroUI.ta.focus()
+if (params.has('premise')) startWithPremise(params.get('premise'))
+else { prefill(hero.composer, heroUI); heroUI.ta.focus() }
+
+// 前提は左に置く。会話はその右の列の先頭から始まり、前提から出した追い質問も同じ列に並ぶ
+function startWithPremise(arg) {
+  state.mode = 'canvas'
+  document.body.classList.remove('hero')
+  heroUI.el.style.visibility = 'hidden'
+  const p = newThread({ x: 48, y: 64, kind: 'premise' })
+  mountThread(p)
+  startReply(p, { premise: arg })
+  const t = newThread({ beside: p.id })
+  const u = mountThread(t, { draft: true })
+  prefill(t.composer, u.comp)
+  layoutNow()
+  u.comp.ta.focus({ preventScroll: true })
+}
 
 function sendFromHero() {
   const I = heroUI.el.getBoundingClientRect()
@@ -1366,7 +1557,7 @@ function morph(I, fieldR, block, text) {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return
   closePop(); hidePill()
-  const t = state.threads.find(t => !t.messages.length && ui.get(t.id).el.contains(document.activeElement))
+  const t = state.threads.find(t => !t.messages.length && !t.beside && ui.get(t.id).el.contains(document.activeElement))
   if (t && !t.composer.text.trim()) removeThread(t)
 })
 window.addEventListener('resize', scheduleLayout)
