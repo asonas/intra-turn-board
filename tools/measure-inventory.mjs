@@ -22,68 +22,19 @@
        "cells": [ { "session": "<key>", "method": "F", "run": 1 }, { "host": "claude", "method": "B", "run": 1 } ] }
    セルの id は <key または host>-<method>-<run>。出力は DIR/runs/<id>-aN/ に残し、各実行を DIR/results.jsonl に1行足す。 */
 import { spawn } from 'node:child_process'
-import { readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { loadavg } from 'node:os'
+import { loadavg, tmpdir } from 'node:os'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
+// 在庫の領域知識 (プロンプト・形の検証・発話の抜き出し・記録の場所) は、サーバーと共有する1か所に置く
+import { CAPS, SPEC, prefilteredPrompt, validateInventory, modelJson, parseLines, extract, extractClaude, extractCodex, locateTranscript } from '../.agents/skills/intra-turn-board/inventory.mjs'
 
-const WIDGETS = ['single', 'chips', 'range', 'text']
-const CAPS = { open: 5, facts: 8 }
 const SUMMARIZER_MODEL = { claude: 'sonnet', codex: 'gpt-6.2-sol' }
 
-/* ============ 在庫の形の検証 ============ */
-export function validateInventory(v) {
-  if (!v || typeof v !== 'object' || Array.isArray(v)) return ['トップレベルがオブジェクトではない']
-  const errors = []
-  const str = (x, path) => { if (typeof x !== 'string' || !x.trim()) errors.push(`${path} が空でない文字列ではない`) }
-  if (!Array.isArray(v.open)) errors.push('open が配列ではない')
-  if (!Array.isArray(v.facts)) errors.push('facts が配列ではない')
-  ;(Array.isArray(v.open) ? v.open : []).forEach((o, i) => {
-    const at = `open[${i}]`
-    if (!o || typeof o !== 'object') { errors.push(`${at} がオブジェクトではない`); return }
-    for (const k of ['topic', 'question', 'source']) str(o[k], `${at}.${k}`)
-    if (!WIDGETS.includes(o.widget)) errors.push(`${at}.widget が ${WIDGETS.join('/')} のいずれかではない`)
-    if (typeof o.multiple !== 'boolean') errors.push(`${at}.multiple が真偽値ではない`)
-    if (!Array.isArray(o.options) || o.options.some(x => typeof x !== 'string' || !x.trim())) errors.push(`${at}.options が文字列の配列ではない`)
-    else if ((o.widget === 'single' || o.widget === 'chips') && o.options.length < 2) errors.push(`${at}.options が ${o.widget} なのに2個未満`)
-    else if (o.widget === 'range' && o.options.length > 1) errors.push(`${at}.options が range なのに単位1個以下ではない`)
-  })
-  ;(Array.isArray(v.facts) ? v.facts : []).forEach((f, i) => {
-    if (!f || typeof f !== 'object') { errors.push(`facts[${i}] がオブジェクトではない`); return }
-    for (const k of ['topic', 'value', 'source']) str(f[k], `facts[${i}].${k}`)
-  })
-  return errors
-}
-
-// モデルの出力から最も外側の JSON オブジェクトを取り出す (コードフェンスや前置きを許す)
-export function modelJson(text) {
-  const first = typeof text === 'string' ? text.indexOf('{') : -1, last = typeof text === 'string' ? text.lastIndexOf('}') : -1
-  if (first < 0 || last < first) throw new Error('JSON オブジェクトが見つからない')
-  try { return JSON.parse(text.slice(first, last + 1)) } catch { throw new Error('JSON として読めない') }
-}
-
-/* ============ プロンプト ============ */
-const SPEC = `## 作るもの: 在庫
-会話の文脈から、次の形の JSON オブジェクトを1つ作る。ユーザーがこのあと付箋に依頼を書いたとき、AI が聞き返したくなる論点と、聞き返してはいけない決定済みの事実を、先に集めておくためのもの。
-
-{
-  "open": [ { "topic": "...", "question": "...", "widget": "single", "options": ["...", "..."], "multiple": false, "source": "..." } ],
-  "facts": [ { "topic": "...", "value": "...", "source": "..." } ]
-}
-
-- open は、会話の中でまだ決まっていない判断。ユーザーが答えていない問い、保留にされた事柄、候補が並んだまま結論が出ていない事柄。最大${CAPS.open}件。重要なものから並べる。未決のものが無ければ空配列にし、作り足さない
-  - topic は論点の短い名前 (20字以内)、question はユーザーに聞く問い (80字以内)
-  - widget は single (1つ選ぶ) / chips (候補から選ぶ。複数可) / range (年齢・人数・期間など連続する量) / text (自由記述) のいずれか
-  - options は、single と chips では会話に出た候補を中心に2〜6個。range では単位だけを1個 (例: ["歳"]) か空配列にし、最小や最大は書かない。text では空配列
-  - multiple は、複数選べるなら true
-  - source は、会話のどこから来たか。短い引用か言い換え (40字以内)
-- facts は、ユーザーが明言したか、AI の提案をユーザーが了承したことだけ。AI が仮に置いただけのことや、AI の説明や推測は facts にせず、未決なら open に入れる。最大${CAPS.facts}件
-  - topic は事柄の短い名前、value は決まった内容、source は会話のどこで決まったか (40字以内)
-- 会話に無いことは足さない。推測で埋めない。日本語で書く
-- JSON オブジェクトを1つだけ返す。前置き、説明、コードフェンスは付けない`
-
+/* ============ プロンプト ============
+   P 方式のプロンプト (prefilteredPrompt) と、SPEC は共有の inventory.mjs にある。F / S / B はこの計測だけで使う */
 const FORMAT_HINTS = {
   claude: `- 1行が1つの JSON。発話は "type":"user" と "type":"assistant" の行にあり、message.content が文字列か {"type":"text"} ブロックの配列
 - tool_use、tool_result、thinking のブロックと、type が user / assistant 以外の行は作業の記録。論点や決定の根拠になるときだけ見る
@@ -95,64 +46,7 @@ const FORMAT_HINTS = {
 
 const forkPrompt = () => `あなたは、これまでの会話の文脈 (あなたが引き継いだ会話) から「在庫」を作る係です。ツールは使わず、ファイルも読まない。\n\n${SPEC}`
 const summarizerPrompt = (host, path) => `あなたは、AI エージェントとユーザーの会話の記録から「在庫」を作る係です。\n\n## 会話の記録\nファイル: ${path}\n読み取り専用のツールで読む。\n${FORMAT_HINTS[host]}\n- ファイルは大きく、1行が数十万字になることもある。全体を順に読まず、発話の行を Grep で探し、必要な範囲だけ読む\n- ファイルを書き換えない。会話の記録以外のファイルを探し回らない\n\n${SPEC}`
-const prefilteredPrompt = text => `あなたは、会話の記録から「在庫」を作る係です。次の「会話の記録」は、ユーザーとアシスタントの発話だけを抜き出したもので、ツールの出力や作業の途中経過は含まれない。ツールは使わず、ファイルも読まない。\n\n${SPEC}\n\n## 会話の記録\n${text}`
 const FLOOR_PROMPT = '「OK」とだけ返す。'
-
-/* ============ 発話の抜き出し (P 方式) ============ */
-const stripReminders = s => s.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
-
-const askText = input => (input?.questions ?? []).map(q => `- ${q.question} (候補: ${(q.options ?? []).map(o => o.label).join(' / ')}${q.multiSelect ? '、複数可' : ''})`).join('\n')
-const resultText = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(b => b.type === 'text').map(b => b.text).join('\n') : ''
-
-const parseLines = text => text.split('\n').filter(Boolean).flatMap(line => { try { return [JSON.parse(line)] } catch { return [] } })
-
-// AskUserQuestion は道具の形をした対話そのものなので、tool_use / tool_result のうちこれだけ残す
-export function extractClaude(jsonlText) {
-  const events = parseLines(jsonlText)
-  const start = events.findLastIndex(e => e.isCompactSummary)
-  const asks = new Set(), out = []
-  for (const e of events.slice(Math.max(start, 0))) {
-    if (e.isSidechain || e.isMeta) continue
-    const c = e.message?.content
-    // アシスタントの作業中に打ったユーザーの発話は、user ではなく queued_command の添付として残る。peer (他エージェントの報告) は作業の記録として落とす
-    const queued = e.type === 'attachment' && e.attachment?.type === 'queued_command' && !e.attachment.isMeta ? e.attachment : null
-    if (queued && ['human', 'task-notification'].includes(queued.origin?.kind)) {
-      const label = queued.origin.kind === 'human' ? 'ユーザー' : '通知'
-      for (const b of typeof queued.prompt === 'string' ? [{ type: 'text', text: queued.prompt }] : Array.isArray(queued.prompt) ? queued.prompt : []) {
-        if (b.type === 'text') { const t = stripReminders(b.text); if (t) out.push(`[${label}] ${t}`) }
-        else if (b.type === 'image') out.push(`[${label}] [画像]`)
-      }
-    } else if (e.type === 'user') {
-      for (const b of typeof c === 'string' ? [{ type: 'text', text: c }] : Array.isArray(c) ? c : []) {
-        // <task-notification> はユーザーの発話の形でハーネスが入れる、子エージェントの完了通知。ユーザーの発話にしない
-        if (b.type === 'text') { const t = stripReminders(b.text); if (t) out.push(`[${e.isCompactSummary ? '会話の要約' : t.startsWith('<task-notification>') ? '通知' : 'ユーザー'}] ${t}`) }
-        else if (b.type === 'image') out.push('[ユーザー] [画像]')
-        else if (b.type === 'tool_result' && asks.has(b.tool_use_id)) out.push(`[ユーザーの回答] ${resultText(b.content)}`)
-      }
-    } else if (e.type === 'assistant' && Array.isArray(c)) {
-      for (const b of c) {
-        if (b.type === 'text' && b.text.trim()) out.push(`[アシスタント] ${b.text.trim()}`)
-        else if (b.type === 'tool_use' && b.name === 'AskUserQuestion') { asks.add(b.id); out.push(`[アシスタントの質問]\n${askText(b.input)}`) }
-      }
-    }
-  }
-  return out.join('\n\n')
-}
-
-const CODEX_SYSTEM_PARTS = ['# AGENTS.md instructions', '<environment_context>', '<skill>', '<user_instructions>', '<permissions instructions>']
-export function extractCodex(jsonlText) {
-  const out = []
-  for (const e of parseLines(jsonlText)) {
-    if (e.type !== 'response_item' || e.payload?.type !== 'message' || !['user', 'assistant'].includes(e.payload.role)) continue
-    const parts = e.payload.content.map(c => c.type === 'input_image' ? '[画像]' : (c.text ?? '')).filter(t => t.trim() && !(e.payload.role === 'user' && CODEX_SYSTEM_PARTS.some(p => t.trimStart().startsWith(p))))
-    // <image name=...> と </image> は画像の囲みなので落とす
-    const text = parts.filter(t => !/^<\/?image\b/.test(t.trim())).join('\n').trim()
-    const label = e.payload.role === 'assistant' ? 'アシスタント' : text.startsWith('<send_user_message_question_reply>') ? 'ユーザーの回答' : 'ユーザー'
-    if (text) out.push(`[${label}] ${text}`)
-  }
-  return out.join('\n\n')
-}
-export const extract = (host, jsonlText) => host === 'claude' ? extractClaude(jsonlText) : extractCodex(jsonlText)
 
 export function sessionStat(host, path) {
   const text = readFileSync(path, 'utf8')
@@ -375,7 +269,7 @@ function writeReviews(outDir) {
 }
 
 /* ============ 自己検証 ============ */
-function selftest() {
+async function selftest() {
   const good = { open: [{ topic: 't', question: 'q', widget: 'chips', options: ['a', 'b'], multiple: true, source: 's' }, { topic: 'r', question: 'q', widget: 'range', options: ['歳'], multiple: false, source: 's' }, { topic: 'x', question: 'q', widget: 'text', options: [], multiple: false, source: 's' }], facts: [{ topic: 't', value: 'v', source: 's' }] }
   assert.deepEqual(validateInventory(good), [])
   assert.ok(validateInventory({ open: [], facts: [{ topic: 't', value: '', source: 's' }] }).length)
@@ -431,6 +325,22 @@ function selftest() {
   const events = [{ type: 'thread.started' }, { type: 'item.completed', item: { type: 'command_execution' } }, { type: 'item.completed', item: { type: 'agent_message', text: '{"open":[],"facts":[]}' } }, { type: 'turn.completed', usage: { input_tokens: 10, cached_input_tokens: 4, output_tokens: 3 } }].map(line).join('\n')
   const p = parseCodex(events)
   assert.deepEqual([p.text, p.usage.cacheRead, p.toolCalls, p.numTurns], ['{"open":[],"facts":[]}', 4, 1, 2])
+
+  // 記録の場所: claude は作業ディレクトリの / と . を - に替えたディレクトリ、codex は日付のディレクトリを探してファイル名の末尾で合わせる
+  const home = mkdtempSync(join(tmpdir(), 'inventory-selftest-'))
+  try {
+    const cwd = '/Users/me/ghq/github.com/me/repo/.worktrees/x'
+    const claudePath = join(home, '.claude', 'projects', '-Users-me-ghq-github-com-me-repo--worktrees-x', 'sess-1.jsonl')
+    mkdirSync(dirname(claudePath), { recursive: true }); writeFileSync(claudePath, '')
+    assert.equal(await locateTranscript('claude', 'sess-1', { home, cwd }), claudePath)
+    assert.equal(await locateTranscript('claude', 'sess-2', { home, cwd }), null)
+    assert.equal(await locateTranscript('codex', 'abc-123', { home }), null)
+    const rollout = join(home, '.codex', 'sessions', '2026', '11', '21', 'rollout-2026-11-21T10-00-00-abc-123.jsonl')
+    mkdirSync(dirname(rollout), { recursive: true }); writeFileSync(rollout, '')
+    assert.equal(await locateTranscript('codex', 'abc-123', { home }), rollout)
+    assert.equal(await locateTranscript('codex', 'bc-123', { home }), null)
+    assert.equal(await locateTranscript('codex', 'zzz', { home }), null)
+  } finally { rmSync(home, { recursive: true, force: true }) }
   console.log('selftest ok')
 }
 
@@ -440,7 +350,7 @@ async function main() {
   const { values } = parseArgs({ args: rest, options: { plan: { type: 'string' }, out: { type: 'string' }, only: { type: 'string' }, dry: { type: 'boolean' }, host: { type: 'string' }, jsonl: { type: 'string' } } })
   const needOut = () => { if (!values.out) throw new Error('--out DIR を指定してください'); return resolve(values.out) }
   switch (command) {
-    case 'selftest': selftest(); break
+    case 'selftest': await selftest(); break
     case 'extract': console.log(extract(values.host, readFileSync(values.jsonl, 'utf8'))); break
     case 'stat': console.log(JSON.stringify(sessionStat(values.host, values.jsonl))); break
     case 'report': {
