@@ -437,8 +437,18 @@ async function main() {
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { building.abort(); process.kill(process.pid, signal) })
 
   server.listen(0, '127.0.0.1', () => {
-    console.log('http://127.0.0.1:' + server.address().port + '/?t=' + token)
+    const url = 'http://127.0.0.1:' + server.address().port + '/?t=' + token
+    console.log(url)
+    if (!process.env.INTRA_TURN_NO_OPEN) openInBrowser(url)
     buildInventory(config, AbortSignal.any([building.signal, AbortSignal.timeout(INVENTORY_TIMEOUT_MS)])).then(state => { inventory = state })
   })
 }
+// 既定のブラウザで開く。開けなくても URL は標準出力に出ているので、失敗は無視する
+function openInBrowser(url) {
+  const [bin, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]]
+  const child = spawn(bin, args, { stdio: 'ignore', detached: true })
+  child.on('error', () => {})
+  child.unref()
+}
+
 await main()

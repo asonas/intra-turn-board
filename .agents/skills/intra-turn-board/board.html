@@ -770,10 +770,17 @@ viewport.addEventListener('pointerdown', e => {
   if (e.button !== 0 || (e.target !== viewport && e.target !== world)) return
   if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur()
   viewport.setPointerCapture(e.pointerId); viewport.classList.add('panning')
-  const sx = e.clientX - pan.x, sy = e.clientY - pan.y
-  const move = m => { pan.x = m.clientX - sx; pan.y = m.clientY - sy; applyPan() }
+  const sx = e.clientX - pan.x, sy = e.clientY - pan.y, ox = e.clientX, oy = e.clientY, dismissed = dismissedPop
+  let moved = false
+  const move = m => { moved ||= Math.hypot(m.clientX - ox, m.clientY - oy) > 4; pan.x = m.clientX - sx; pan.y = m.clientY - sy; applyPan() }
   viewport.addEventListener('pointermove', move)
-  viewport.addEventListener('lostpointercapture', () => { viewport.removeEventListener('pointermove', move); viewport.classList.remove('panning') }, { once: true })
+  viewport.addEventListener('lostpointercapture', () => {
+    viewport.removeEventListener('pointermove', move); viewport.classList.remove('panning')
+    // 動かさずに離したら、その場所に付箋を置く。ポップオーバーを閉じるためのクリックでは置かない
+    if (moved || dismissed) return
+    const note = createNote({ x: ox - pan.x - 24, y: oy - pan.y - 20 })
+    note.ta.focus({ preventScroll: true })
+  }, { once: true })
 })
 window.addEventListener('wheel', e => {
   if (e.target.closest('#pop')) return
@@ -910,8 +917,11 @@ function refreshNotes() {
 }
 // ポップオーバー内のボタンを押しても、付箋のキャレットを失わない
 pop.addEventListener('pointerdown', e => { if (!e.target.closest('input')) e.preventDefault() })
+let dismissedPop = false
 document.addEventListener('pointerdown', e => {
+  dismissedPop = false
   if (pop.hidden || pop.contains(e.target) || (popCtx && popCtx.anchor.contains?.(e.target))) return
+  dismissedPop = true
   closePop()
 }, true)
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closePop(); hideAsk() } })
@@ -1388,6 +1398,7 @@ const EXAMPLES = {
 $('#add').append(icon('plus', 14), '付箋を追加')
 $('#add').onclick = () => addNoteAt('')
 document.querySelectorAll('[data-ex]').forEach(b => b.onclick = () => addNoteAt(EXAMPLES[b.dataset.ex]))
+if (!DEMO) $('.examples').remove()
 pan.x = 0; pan.y = 0; applyPan()
 // 辞書を読み終えたら、書きかけの付箋を解析し直す
 startKuromoji(refreshNotes)
@@ -1410,8 +1421,9 @@ async function pollInventory() {
 }
 if (!DEMO) pollInventory()
 
-createNote({ x: Math.max(40, innerWidth * 0.08), y: 120, text: EXAMPLES.travel })
-const empty = createNote({ x: Math.max(40, innerWidth * 0.08), y: 400 })
+// 例の付箋は見本でだけ置く。サーバー版は空の付箋1枚から始める
+if (DEMO) createNote({ x: Math.max(40, innerWidth * 0.08), y: 120, text: EXAMPLES.travel })
+const empty = createNote({ x: Math.max(40, innerWidth * 0.08), y: DEMO ? 400 : 120 })
 empty.ta.focus()
 </script>
 </body>
