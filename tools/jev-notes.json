@@ -1,0 +1,334 @@
+{
+  "_comment": "Issue #1 ステップ1の計測用データ。付箋20件は架空。underline / unsure / reason は計測した側 (AI) の提案で、ユーザーが見直す前提。Jev の出力を見る前に確定した。candidates / baselineTop3 / source は tools/extract-jev-candidates.mjs が board.html から書く。",
+  "labelRule": "付箋の書き手が、AI に黙って決められると後で「そこは違う」と言いそうな語、または黙って決められたことに気付けない語に underline を付ける。文面だけで決まっている語、依頼の背景や言い回しにすぎない語には付けない。上限は設けない（3語を超えるなら、上位3語の再現率に上限ができる）。どちらとも言い切れない語は unsure に入れ、主な集計では付けない側に数える。",
+  "protocol": {
+    "decidedBeforeRunning": true,
+    "latency": "出荷する形のリクエスト（1つの基準 + kind + shape）を逐次に送る。p95 が 1.0 秒以下で最大が 1.5 秒未満なら、入力中の判定に使える。p95 が 1.5 秒を超えるなら、ルールへの退避が5%以上で起きるので、質問数を減らす案を出す。",
+    "criterion": "付箋ごと3回の平均値で、全候補の AUC と、出荷する規則（値が t 以上の語を上から最大3つ）の F1 を、影響とあいまいさで比べる。AUC の差が 0.05 を超え、付箋を再標本化したブートストラップ（2000回）の95%区間が0を含まなければ、高い方を採る。そうでなければ差なしと報告する。",
+    "threshold": "t は 0.3 から 0.8 を 0.1 刻みで試し、F1 が最大のものを採る。F1 の差が 0.02 以内で並ぶなら、適合率が高い方（誤った下線が少ない方）を採る。",
+    "noise": "noul の3回の幅（最大 - 最小）の中央値が 0.1 を超えるなら、閾値を 0.1 より細かくしても意味がない。"
+  },
+  "source": {
+    "board": ".agents/skills/intra-turn-board/board.html",
+    "gitHead": "66dc86f3a08ec944ba1b53b53806e0269c66466a",
+    "boardBlob": "223ed4836eaff7d06224fbc1cd4aca0ad392e669",
+    "kuromoji": "kuromoji@0.1.2",
+    "extractedAt": "2026-11-22T04:07:25.651Z"
+  },
+  "notes": [
+    {
+      "id": "travel-kyoto",
+      "tag": "example/travel",
+      "text": "週末に家族で京都旅行の計画を立てたい",
+      "underline": ["家族","京都旅行"],
+      "unsure": ["計画"],
+      "reason": "家族の人数と年齢で行程が変わり、京都のどこを回るかで中身が変わる。計画の詳しさは返す形の問い（shape）の領分。",
+      "baselineTop3": ["京都旅行","家族","計画"],
+      "candidates": [
+        {"surface":"家族","start":3,"end":5,"kind":"noun"},
+        {"surface":"京都旅行","start":6,"end":10,"kind":"proper"},
+        {"surface":"計画","start":11,"end":13,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "birthday",
+      "tag": "example/events",
+      "text": "父の還暦祝いの夕食を家で開きたい。献立と買い物リストと、乾杯の挨拶を考えて。カードの文面みたいではなく、自分らしい言葉で。",
+      "underline": ["献立","乾杯","挨拶"],
+      "unsure": ["買い物リスト","言葉"],
+      "reason": "依頼の中心の3語（ユーザー指定）。買い物リストは献立から決まる。言葉は「自分らしい」の中身を知る必要があり、境界。",
+      "baselineTop3": ["還暦祝い","買い物リスト","夕食"],
+      "candidates": [
+        {"surface":"還暦祝い","start":2,"end":6,"kind":"compound"},
+        {"surface":"夕食","start":7,"end":9,"kind":"noun"},
+        {"surface":"献立","start":17,"end":19,"kind":"noun"},
+        {"surface":"買い物リスト","start":20,"end":26,"kind":"compound"},
+        {"surface":"乾杯","start":28,"end":30,"kind":"noun"},
+        {"surface":"挨拶","start":31,"end":33,"kind":"noun"},
+        {"surface":"カード","start":38,"end":41,"kind":"noun"},
+        {"surface":"文面","start":42,"end":44,"kind":"noun"},
+        {"surface":"自分","start":52,"end":54,"kind":"noun"},
+        {"surface":"言葉","start":57,"end":59,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "poster",
+      "tag": "example/design",
+      "text": "勉強会の告知ポスターを2案つくりたい。すっきりしていて差し色があり、タイトルが目立つもの",
+      "underline": ["勉強会","2案","差し色"],
+      "unsure": ["告知ポスター","タイトル"],
+      "reason": "勉強会の中身（テーマ・日時）はAIが作れない。2案の違いの軸と差し色の色は、黙って決めると別物になる。",
+      "baselineTop3": ["告知ポスター","勉強会","2案"],
+      "candidates": [
+        {"surface":"勉強会","start":0,"end":3,"kind":"noun"},
+        {"surface":"告知ポスター","start":4,"end":10,"kind":"compound"},
+        {"surface":"2案","start":11,"end":13,"kind":"noun"},
+        {"surface":"差し色","start":27,"end":30,"kind":"noun"},
+        {"surface":"タイトル","start":34,"end":38,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "naming-app",
+      "tag": "example/naming",
+      "text": "アプリの名前を考えたい",
+      "underline": ["アプリ"],
+      "unsure": ["名前"],
+      "reason": "どんなアプリかが決まらないと名前の方向が決まらない。名前は成果物そのもの。",
+      "baselineTop3": ["アプリ","名前"],
+      "candidates": [
+        {"surface":"アプリ","start":0,"end":3,"kind":"noun"},
+        {"surface":"名前","start":4,"end":6,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "farewell-party",
+      "tag": "events",
+      "text": "来月のチームの歓送迎会の店を決めて、案内メールの文面も作って",
+      "underline": ["チーム","歓送迎会"],
+      "unsure": ["案内メール","文面"],
+      "reason": "店は人数・予算・日時で決まる。それらは歓送迎会とチームの語に隠れている。メールの調子は境界。",
+      "baselineTop3": ["歓送迎会","案内メール","チーム"],
+      "candidates": [
+        {"surface":"チーム","start":3,"end":6,"kind":"noun"},
+        {"surface":"歓送迎会","start":7,"end":11,"kind":"proper"},
+        {"surface":"案内メール","start":18,"end":23,"kind":"compound"},
+        {"surface":"文面","start":24,"end":26,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "wedding-speech",
+      "tag": "writing",
+      "text": "友人の結婚式で読むスピーチの原稿を書きたい",
+      "underline": ["友人","スピーチ"],
+      "unsure": ["結婚式"],
+      "reason": "友人との関係と思い出はAIが知らない。スピーチの長さと調子で原稿が変わる。式の格式は境界。",
+      "baselineTop3": ["友人","結婚式","スピーチ"],
+      "candidates": [
+        {"surface":"友人","start":0,"end":2,"kind":"noun"},
+        {"surface":"結婚式","start":3,"end":6,"kind":"noun"},
+        {"surface":"スピーチ","start":9,"end":13,"kind":"noun"},
+        {"surface":"原稿","start":14,"end":16,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "science-project",
+      "tag": "education",
+      "text": "小学生の息子の夏休みの自由研究のテーマを考えたい",
+      "underline": ["小学生","研究"],
+      "unsure": ["息子","夏休み"],
+      "reason": "学年と、研究の分野（理科・工作・社会）で候補が全く変わる。息子の興味は境界。",
+      "baselineTop3": ["小学生","息子","夏休み"],
+      "candidates": [
+        {"surface":"小学生","start":0,"end":3,"kind":"noun"},
+        {"surface":"息子","start":4,"end":6,"kind":"noun"},
+        {"surface":"夏休み","start":7,"end":10,"kind":"noun"},
+        {"surface":"研究","start":13,"end":15,"kind":"noun"},
+        {"surface":"テーマ","start":16,"end":19,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "budget-app",
+      "tag": "product",
+      "text": "新しい家計簿アプリの機能を決めたい。レシート読み取りと予算アラートで迷っている",
+      "underline": ["家計簿アプリ"],
+      "unsure": ["レシート読み取り","予算アラート"],
+      "reason": "誰向け・どの端末かで機能の優先が変わる。迷っている2機能は比べる対象で、文面にある。",
+      "baselineTop3": ["家計簿アプリ","レシート読み取り","予算アラート"],
+      "candidates": [
+        {"surface":"家計簿アプリ","start":3,"end":9,"kind":"compound"},
+        {"surface":"機能","start":10,"end":12,"kind":"noun"},
+        {"surface":"レシート読み取り","start":18,"end":26,"kind":"compound"},
+        {"surface":"予算アラート","start":27,"end":33,"kind":"compound"}
+      ]
+    },
+    {
+      "id": "hokkaido-trip",
+      "tag": "travel",
+      "text": "来週の北海道出張の宿と移動手段を手配したい",
+      "underline": ["北海道出張","移動手段"],
+      "unsure": ["手配"],
+      "reason": "北海道のどこか・日程・予算で宿が決まる。移動手段は飛行機・鉄道の好みと社内規定で割れる。",
+      "baselineTop3": ["北海道出張","移動手段","手配"],
+      "candidates": [
+        {"surface":"北海道出張","start":3,"end":8,"kind":"proper"},
+        {"surface":"移動手段","start":11,"end":15,"kind":"compound"},
+        {"surface":"手配","start":16,"end":18,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "blog-title",
+      "tag": "naming",
+      "text": "ブログ記事のタイトルを5つ考えて",
+      "underline": ["ブログ記事"],
+      "unsure": ["タイトル"],
+      "reason": "記事の中身が文面に無く、題材と読者でタイトルが決まる。",
+      "baselineTop3": ["ブログ記事","タイトル"],
+      "candidates": [
+        {"surface":"ブログ記事","start":0,"end":5,"kind":"compound"},
+        {"surface":"タイトル","start":6,"end":10,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "login-error",
+      "tag": "code/design",
+      "text": "ログイン画面のエラー表示を見直したい。パスワードを間違えたときの文言が冷たい気がする",
+      "underline": ["文言"],
+      "unsure": ["エラー表示"],
+      "reason": "冷たさをどの方向に直すか（丁寧・親しみ・簡潔）で出力が変わる。見直しの範囲は境界。",
+      "baselineTop3": ["ログイン画面","エラー表示","パスワード"],
+      "candidates": [
+        {"surface":"ログイン画面","start":0,"end":6,"kind":"compound"},
+        {"surface":"エラー表示","start":7,"end":12,"kind":"compound"},
+        {"surface":"パスワード","start":19,"end":24,"kind":"noun"},
+        {"surface":"文言","start":32,"end":34,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "react-ts",
+      "tag": "code",
+      "text": "ReactのコンポーネントをTypeScriptに書き換えて",
+      "underline": [],
+      "unsure": ["コンポーネント","TypeScript"],
+      "reason": "意図は一意。どのコンポーネントかは文脈（コード）が与え、型の厳しさは慣習で決まる。下線なしが正解の例。",
+      "baselineTop3": ["React","コンポーネント","TypeScript"],
+      "candidates": [
+        {"surface":"React","start":0,"end":5,"kind":"proper"},
+        {"surface":"コンポーネント","start":6,"end":13,"kind":"noun"},
+        {"surface":"TypeScript","start":14,"end":24,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "study-talk",
+      "tag": "writing",
+      "text": "社内勉強会で発表したい。テーマはキャッシュの設計で、資料の構成と最初のスライドの文言を考えてほしい",
+      "underline": ["社内勉強会","発表","キャッシュ"],
+      "unsure": ["資料","構成","文言"],
+      "reason": "聴衆の習熟度、発表の長さ、キャッシュの種類（HTTP・アプリ・CPU）で構成が変わる。",
+      "baselineTop3": ["社内勉強会","発表","テーマ"],
+      "candidates": [
+        {"surface":"社内勉強会","start":0,"end":5,"kind":"compound"},
+        {"surface":"発表","start":6,"end":8,"kind":"noun"},
+        {"surface":"テーマ","start":12,"end":15,"kind":"noun"},
+        {"surface":"キャッシュ","start":16,"end":21,"kind":"noun"},
+        {"surface":"設計","start":22,"end":24,"kind":"noun"},
+        {"surface":"資料","start":26,"end":28,"kind":"noun"},
+        {"surface":"構成","start":29,"end":31,"kind":"noun"},
+        {"surface":"最初","start":32,"end":34,"kind":"noun"},
+        {"surface":"スライド","start":35,"end":39,"kind":"noun"},
+        {"surface":"文言","start":40,"end":42,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "weekend",
+      "tag": "short",
+      "text": "週末の予定を決めたい",
+      "underline": ["予定"],
+      "unsure": [],
+      "reason": "仕事か遊びか、誰とか、何も決まっていない。候補が1語しかなく、閾値の挙動を見る例。",
+      "baselineTop3": ["予定"],
+      "candidates": [
+        {"surface":"予定","start":3,"end":5,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "apology-mail",
+      "tag": "writing",
+      "text": "取引先に納期が3日遅れることをお詫びするメールを書いてほしい",
+      "underline": ["取引先","納期"],
+      "unsure": ["お詫び"],
+      "reason": "取引先との関係で敬語の度合いが変わる。遅れの理由と新しい納期は文面に無く、AIが作ってはいけない。",
+      "baselineTop3": ["取引先","納期","お詫び"],
+      "candidates": [
+        {"surface":"取引先","start":0,"end":3,"kind":"noun"},
+        {"surface":"納期","start":4,"end":6,"kind":"noun"},
+        {"surface":"お詫び","start":15,"end":18,"kind":"noun"},
+        {"surface":"メール","start":20,"end":23,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "logo",
+      "tag": "design",
+      "text": "新商品のロゴを3案つくりたい。若い女性向けのスキンケア用品で、清潔感がほしい",
+      "underline": ["3案","女性向け"],
+      "unsure": ["商品","ロゴ","スキンケア用品"],
+      "reason": "3案の違いの軸が決まっていない。若い女性の年齢層と好みでロゴの方向が変わる。",
+      "baselineTop3": ["スキンケア用品","商品","ロゴ"],
+      "candidates": [
+        {"surface":"商品","start":1,"end":3,"kind":"noun"},
+        {"surface":"ロゴ","start":4,"end":6,"kind":"noun"},
+        {"surface":"3案","start":7,"end":9,"kind":"noun"},
+        {"surface":"女性向け","start":17,"end":21,"kind":"noun"},
+        {"surface":"スキンケア用品","start":22,"end":29,"kind":"compound"}
+      ]
+    },
+    {
+      "id": "moving",
+      "tag": "events",
+      "text": "引っ越しの手順とチェックリストを作って。来月、東京から大阪へ引っ越す",
+      "underline": ["引っ越し"],
+      "unsure": ["手順","チェックリスト"],
+      "reason": "一人か家族か、業者か自力かで手順が変わる。東京と大阪は文面で決まっていて、現行ルールが上位に置く固有名詞の反例。",
+      "baselineTop3": ["東京","大阪","チェックリスト"],
+      "candidates": [
+        {"surface":"引っ越し","start":0,"end":4,"kind":"noun"},
+        {"surface":"手順","start":5,"end":7,"kind":"noun"},
+        {"surface":"チェックリスト","start":8,"end":15,"kind":"compound"},
+        {"surface":"東京","start":23,"end":25,"kind":"proper"},
+        {"surface":"大阪","start":27,"end":29,"kind":"proper"}
+      ]
+    },
+    {
+      "id": "readme",
+      "tag": "code/docs",
+      "text": "READMEにインストール手順と使い方を追加したい",
+      "underline": ["インストール手順"],
+      "unsure": ["README"],
+      "reason": "OS・パッケージマネージャ・前提環境でインストール手順が変わる。",
+      "baselineTop3": ["インストール手順","README","追加"],
+      "candidates": [
+        {"surface":"README","start":0,"end":6,"kind":"noun"},
+        {"surface":"インストール手順","start":7,"end":15,"kind":"compound"},
+        {"surface":"追加","start":20,"end":22,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "gift",
+      "tag": "product",
+      "text": "友だちの誕生日プレゼントを選びたい。予算は5000円くらいで、相手はコーヒー好き",
+      "underline": ["友だち","コーヒー好き"],
+      "unsure": ["予算"],
+      "reason": "相手との距離・年齢と、コーヒー好きの中身（豆・器具・カフェ）で選ぶものが変わる。予算は文面で決まっている。",
+      "baselineTop3": ["誕生日プレゼント","友だち","予算"],
+      "candidates": [
+        {"surface":"友だち","start":0,"end":3,"kind":"noun"},
+        {"surface":"誕生日プレゼント","start":4,"end":12,"kind":"compound"},
+        {"surface":"予算","start":18,"end":20,"kind":"noun"},
+        {"surface":"相手","start":31,"end":33,"kind":"noun"},
+        {"surface":"コーヒー好き","start":34,"end":40,"kind":"noun"}
+      ]
+    },
+    {
+      "id": "offsite",
+      "tag": "events/long",
+      "text": "来年の春に、十数人のチームで二泊三日の合宿をしたい。場所は関東近郊の温泉地で、予算は一人五万円以内。一日目に全体の振り返り、二日目に新規事業のアイデア出しをしたいので、候補地の比較と当日のタイムテーブルを作ってほしい。堅苦しくない雰囲気にしたい。",
+      "underline": ["新規事業","比較"],
+      "unsure": ["温泉地","アイデア出し","タイムテーブル","候補地"],
+      "reason": "新規事業の領域はAIが知らない。比較の軸（アクセス・設備・費用）を黙って決めると結論が変わる。",
+      "baselineTop3": ["関東近郊","新規事業","タイムテーブル"],
+      "candidates": [
+        {"surface":"チーム","start":10,"end":13,"kind":"noun"},
+        {"surface":"合宿","start":19,"end":21,"kind":"noun"},
+        {"surface":"場所","start":26,"end":28,"kind":"noun"},
+        {"surface":"関東近郊","start":29,"end":33,"kind":"proper"},
+        {"surface":"温泉地","start":34,"end":37,"kind":"noun"},
+        {"surface":"予算","start":39,"end":41,"kind":"noun"},
+        {"surface":"新規事業","start":66,"end":70,"kind":"compound"},
+        {"surface":"アイデア出し","start":71,"end":77,"kind":"noun"},
+        {"surface":"候補地","start":84,"end":87,"kind":"noun"},
+        {"surface":"比較","start":88,"end":90,"kind":"noun"},
+        {"surface":"タイムテーブル","start":94,"end":101,"kind":"compound"},
+        {"surface":"雰囲気","start":115,"end":118,"kind":"noun"}
+      ]
+    }
+  ]
+}
