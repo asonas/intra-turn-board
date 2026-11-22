@@ -1,6 +1,6 @@
 import http from 'node:http'
 import { randomBytes } from 'node:crypto'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -11,7 +11,7 @@ import { BASE_URL, ENDPOINT_PATH, LIMITS, judgeRequest, judgeValues } from './ju
 
 /* ============ ホスト ============
    呼び出し元のエージェントごとに、CLI の引数の組み立てと標準出力の読み方を1か所に持つ。
-   draft / continue は呼び出し元のセッションを fork する。どちらも ephemeral なので、セッションの台帳や後片付けは要らない。
+   draft / continue / summary は呼び出し元のセッションを fork する。どれも ephemeral なので、セッションの台帳や後片付けは要らない。
    inventory は会話に紐づかない別の呼び出しで、発話だけを渡して軽いモデルに在庫を作らせる (issue #2 の PL)。
    judge (下線の判定) は CLI を使わず、Jev の HTTP API を直接1回呼ぶ (issue #1)。 */
 function parseClaude(stdout) {
@@ -146,6 +146,34 @@ function continueInput(body) {
   if (!filled.length) throw bad('filled が空です')
   return { ...input, draft: text(body.draft, 'draft', 20000), filled }
 }
+// ボードの記録。付箋は作られた順で、from は引用元の返事を持つ付箋の番号 (1 から。それより前の付箋)。card は返事が届いたあとの姿
+const orNull = (value, name, max) => value == null ? null : text(value, name, max)
+function cardInput(card) {
+  if (typeof card !== 'object') throw bad('card の形式が不正です')
+  return {
+    draft: orNull(card.draft, 'draft', 20000),
+    filled: list(card.filled, 'filled', 8, f => ({ label: text(f?.label, 'label', 100), value: text(f?.value, 'value', 500) })),
+    continuation: orNull(card.continuation, 'continuation', 20000),
+    error: orNull(card.error, 'error', 1000),
+  }
+}
+function summaryInput(body) {
+  if (!body || typeof body !== 'object') throw bad('リクエストの形式が不正です')
+  const notes = list(body.notes, 'notes', 40, (n, i) => {
+    if (!n || typeof n !== 'object') throw bad('notes の形式が不正です')
+    const from = n.from ?? null
+    if (from !== null && !(Number.isInteger(from) && from >= 1 && from <= i)) throw bad('from は、それより前の付箋の番号にしてください')
+    return {
+      text: text(n.text, 'text', 8000),
+      quote: orNull(n.quote, 'quote', 4000),
+      from,
+      assumptions: list(n.assumptions, 'assumptions', 20, a => text(a, 'assumptions', 300)),
+      card: n.card == null ? null : cardInput(n.card),
+    }
+  })
+  if (!notes.length) throw bad('notes は1件以上で指定してください')
+  return { notes }
+}
 // 判定する候補は、付箋の本文にある語だけ。Jev は state.candidates[i] を本文と照らして答えるので、本文に無い語は聞かない
 function judgeInput(body) {
   if (!body || typeof body !== 'object') throw bad('リクエストの形式が不正です')
@@ -197,6 +225,12 @@ function checkContinuation(value, input) {
   checkBlocks(value?.blocks, new Set(input.filled.map(f => f.key)))
   return { blocks: plainBlocks(value.blocks) }
 }
+function checkSummary(value) {
+  const title = typeof value?.title === 'string' ? value.title.replace(/\s+/g, ' ').trim() : ''
+  if (!title || title.length > 80) throw invalid('title は1〜80文字にしてください')
+  if (typeof value.markdown !== 'string' || !value.markdown.trim() || value.markdown.length > 30000) throw invalid('markdown は1〜30000文字にしてください')
+  return { title, markdown: value.markdown.trim() }
+}
 
 /* ============ プロンプト ============ */
 const section = (title, body) => `## ${title}\n${body}`
@@ -244,11 +278,69 @@ function continuePrompt(input) {
   ].filter(Boolean).join('\n\n')
 }
 
+// ボードの記録を、付箋ごとの読み物にする。付箋の番号は、from で引用元を指すためだけに振る
+function boardText({ notes }) {
+  const part = (label, body) => `${label}\n${body}`
+  return notes.map(({ text, quote, from, assumptions, card }, i) => [
+    `### 付箋${i + 1}`,
+    text,
+    quote && part(from ? `付箋${from}の返事から引用している一節` : '引用している一節', quote),
+    assumptions.length && part('確認済みの前提', bullets(assumptions)),
+    !card && '(まだ送っていない付箋)',
+    card?.draft && part('返事の書き出し', card.draft),
+    card?.filled.length && part('ユーザーが空欄に選んだ値', bullets(card.filled.map(f => `${f.label}: ${f.value}`))),
+    card?.continuation && part('返事の続き', card.continuation),
+    card?.error && part('返事を作れなかった理由', card.error),
+  ].filter(Boolean).join('\n\n')).join('\n\n')
+}
+function summaryPrompt(input) {
+  return [
+    'あなたは、ユーザーがボードで考えたことを、この会話に持ち帰るまとめにする書き手です。これまでの会話の文脈と、下のボードの記録だけを根拠に、ボードでの話し合いをまとめてください。',
+    section('ボードの記録 (付箋は作られた順。付箋の本文はユーザーが書き、返事は AI が書いた)', boardText(input)),
+    section('書き方', bullets([
+      '読み手は、ユーザーと、このあと会話を続ける AI。まとめだけを読んで、続きを進められるようにする',
+      'Markdown の見出し (##) で、決まったこと、まだ決まっていないこと、次にやること、付箋ごとの要点の順に書く。書くことが無い節は作らない',
+      '決まったことは、確認済みの前提、空欄に選んだ値、付箋に書かれた判断だけから拾う。AI の返事の本文に書かれた案や手順は、ユーザーが選んだものではないので、決まったことに入れない。まだ決まっていないことか次にやることに、AI の提案として書く',
+      '返事の書き出しの ［ ］ は、ユーザーがまだ選んでいない空欄で、返事を作れなかった箇所と合わせて、まだ決まっていないことに入れる',
+      '次にやることは、具体的な動作で書く',
+      '付箋の番号は記録の中の参照用なので書かない。付箋は、書かれた内容で呼ぶ',
+      '記録と会話の文脈に無いことは書かない。推測で埋めない',
+      '日本語で、全体で1500字程度までにする',
+      'title は、ボードで考えたことが分かる短い題 (30字以内)。markdown に title の見出しは含めない',
+      'ツールは使わず、ファイルも読まない',
+    ])),
+  ].join('\n\n')
+}
+
+/* ============ まとめの保存 ============
+   <呼び出し元の作業ディレクトリ>/intra-turn-board/<日時>-<題>.md に書く。同じ名前があれば番号を足し、上書きしない */
+const pad = n => String(n).padStart(2, '0')
+// 題から、ファイル名に使える語だけを残す (文字と数字以外は - にするので、/ や .. は残らない)
+function summaryName(now, title) {
+  const slug = Array.from(title.normalize('NFC').replace(/[^\p{L}\p{N}\p{M}]+/gu, '-').replace(/^-+|-+$/g, '')).slice(0, 40).join('').replace(/-+$/, '') || 'board'
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}-${slug}`
+}
+async function saveSummary({ title, markdown }) {
+  const dir = join(process.cwd(), 'intra-turn-board'), base = summaryName(new Date(), title)
+  try {
+    await mkdir(dir, { recursive: true })
+    for (let n = 1; n < 100; n++) {
+      const path = join(dir, `${base}${n > 1 ? `-${n}` : ''}.md`)
+      // wx は、同じ名前があれば失敗する。確かめてから書くのではなく、書くのと同時に確かめる
+      try { await writeFile(path, `# ${title}\n\n${markdown}\n`, { flag: 'wx' }); return { path, title } } catch (error) { if (error.code !== 'EEXIST') throw error }
+    }
+    throw new Error('同じ名前のまとめが多すぎます')
+  } catch (error) {
+    throw new Error(`まとめを保存できませんでした (${error.message})`)
+  }
+}
+
 /* ============ 段階 ============
-   POST のパスごとに、入力の検証・プロンプト・スキーマ・出力の検証を引く表 */
+   POST のパスごとに、入力の検証・プロンプト・スキーマ・出力の検証を引く表。save があれば、出力の検証のあとに呼んで、その返り値を応答にする */
 const STAGES = {
   '/draft': { name: 'draft', input: noteInput, prompt: draftPrompt, check: checkDraft },
   '/continue': { name: 'continue', input: continueInput, prompt: continuePrompt, check: checkContinuation },
+  '/summary': { name: 'summary', input: summaryInput, prompt: summaryPrompt, check: checkSummary, save: saveSummary },
 }
 
 /* ============ モデル呼び出し ============ */
@@ -324,10 +416,11 @@ async function runStage(config, schemas, stage, body, signal) {
   const start = Date.now()
   try {
     const { value, usage, cost_usd } = await invoke(config, stage.prompt(input), schemas[stage.name], signal)
-    const result = stage.check(value, input)
+    const checked = stage.check(value, input)
+    const saved = stage.save && await stage.save(checked)
     const ms = Date.now() - start
-    console.log(JSON.stringify({ stage: stage.name, host: config.host, ms, ...(cost_usd != null && { cost_usd }), usage }))
-    return { ...result, host: config.host, ms }
+    console.log(JSON.stringify({ stage: stage.name, host: config.host, ms, ...(cost_usd != null && { cost_usd }), usage, ...(saved && { path: saved.path }) }))
+    return { ...(saved || checked), host: config.host, ms }
   } catch (error) {
     console.log(JSON.stringify({ stage: stage.name, host: config.host, ms: Date.now() - start, error: error.message }))
     throw error
@@ -384,15 +477,18 @@ async function main() {
     schemas[name] = { path, json: JSON.stringify(JSON.parse(await readFile(path, 'utf8'))) }
   }
 
-  // POST のパスごとの処理と、待つ時間の上限。draft / continue は呼び出し元のセッションを fork するので長く待つ。judge は短い
+  // POST のパスごとの処理と、待つ時間の上限。draft / continue / summary は呼び出し元のセッションを fork するので長く待つ。judge は短い。
+  // maxBytes は本文の上限 (既定 150000)。summary はボード全体の記録を受けるので大きい。after は、応答を送り終えたあとに呼ぶ
   const routes = {
     '/draft': { timeoutMs: 180000, run: (body, signal) => runStage(config, schemas, STAGES['/draft'], body, signal) },
     '/continue': { timeoutMs: 180000, run: (body, signal) => runStage(config, schemas, STAGES['/continue'], body, signal) },
+    '/summary': { timeoutMs: 180000, maxBytes: 400000, run: (body, signal) => runStage(config, schemas, STAGES['/summary'], body, signal), after: ({ path }) => finish(path) },
     '/judge': { timeoutMs: JUDGE_TIMEOUT_MS, run: (body, signal) => judge(jev, body, signal) },
   }
 
   let inventory = { state: 'pending' }
-  const building = new AbortController()
+  // 終わるときに、動いている子プロセス (在庫、draft、continue、summary) を止めるための取り消し
+  const stopping = new AbortController()
 
   const server = http.createServer(async (req, res) => {
     const origin = 'http://127.0.0.1:' + server.address().port
@@ -421,26 +517,33 @@ async function main() {
       let bytes = 0
       for await (const chunk of req) {
         bytes += chunk.length
-        if (bytes > 150000) { res.writeHead(413).end(); return }
+        if (bytes > (route.maxBytes ?? 150000)) { res.writeHead(413).end(); return }
         chunks.push(chunk)
       }
       let body
       try { body = JSON.parse(Buffer.concat(chunks)) } catch { throw bad('リクエストが JSON ではありません') }
-      const result = await route.run(body, AbortSignal.any([controller.signal, AbortSignal.timeout(route.timeoutMs)]))
-      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(result))
+      const result = await route.run(body, AbortSignal.any([controller.signal, stopping.signal, AbortSignal.timeout(route.timeoutMs)]))
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(result), () => route.after?.(result))
     } catch (error) {
       const message = error.name === 'AbortError' ? `${route.timeoutMs / 1000}秒以内に返事が届きませんでした` : error.message
       res.writeHead(error.status ?? 502, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: message }))
     }
   })
-  // 終了するときは、作りかけの在庫の子プロセスも止める
-  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { building.abort(); process.kill(process.pid, signal) })
+  // 終了するときは、動いている子プロセス (作りかけの在庫、返事を待つ draft / continue) も止める
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { stopping.abort(); process.kill(process.pid, signal) })
+
+  // まとめを返し終えたら、サーバーも終わる。呼び出し元のエージェントは、`SUMMARY <パス>` の行とプロセスの終了で、まとめができたと知る。
+  // 行は書き終えてから終わる (標準出力がパイプだと、すぐ exit すると切れることがある)
+  function finish(path) {
+    stopping.abort()
+    process.stdout.write(`SUMMARY ${path}\n`, () => process.exit(0))
+  }
 
   server.listen(0, '127.0.0.1', () => {
     const url = 'http://127.0.0.1:' + server.address().port + '/?t=' + token
     console.log(url)
     if (!process.env.INTRA_TURN_NO_OPEN) openInBrowser(url)
-    buildInventory(config, AbortSignal.any([building.signal, AbortSignal.timeout(INVENTORY_TIMEOUT_MS)])).then(state => { inventory = state })
+    buildInventory(config, AbortSignal.any([stopping.signal, AbortSignal.timeout(INVENTORY_TIMEOUT_MS)])).then(state => { inventory = state })
   })
 }
 // 既定のブラウザで開く。開けなくても URL は標準出力に出ているので、失敗は無視する

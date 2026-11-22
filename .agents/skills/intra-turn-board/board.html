@@ -37,7 +37,19 @@ header.bar h1{font-size:18px;margin:0 12px 0 4px;font-weight:700;letter-spacing:
 .examples{display:flex;gap:4px;background:#fff;border-radius:10px;padding:4px;box-shadow:var(--shadow)}
 .examples button{border:0;background:transparent;border-radius:7px;padding:4px 10px;font-size:13px;color:var(--sub)}
 .examples button:hover{background:var(--accent-soft);color:var(--accent-ink)}
-.add{margin-left:auto;display:flex;align-items:center;gap:6px;border:0;background:#1f2a24;color:#fff;border-radius:9px;padding:7px 12px;font-size:13px;box-shadow:var(--shadow)}
+.actions{margin-left:auto;display:flex;align-items:center;gap:12px}
+.add,.finish{display:flex;align-items:center;gap:6px;border:0;border-radius:9px;padding:7px 12px;font-size:13px;box-shadow:var(--shadow)}
+.add{background:#1f2a24;color:#fff}
+.add:disabled{opacity:.4;cursor:default}
+.finish{background:#fff;color:var(--ink)}
+.finish:hover:not(:disabled){background:var(--accent-soft);color:var(--accent-ink)}
+.finish:disabled{color:var(--faint);cursor:default}
+.finish.saving .ic{display:none}
+.finish.saving::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;animation:blink 1s infinite}
+.finish.saving:disabled{color:var(--sub)}
+.fnote{display:flex;align-items:center;gap:6px;max-width:min(520px,45vw);font-size:12px;color:var(--faint)}
+.fnote span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fnote.failed{color:var(--danger)}
 
 /* ---- note (human) ---- */
 .note{width:300px;background:var(--note);border-radius:6px;padding:10px 16px 12px;box-shadow:1px 2px 0 var(--note-edge),0 10px 24px #6b5d1a1f;transition:box-shadow .2s}
@@ -213,7 +225,11 @@ header.bar h1{font-size:18px;margin:0 12px 0 4px;font-weight:700;letter-spacing:
     <button data-ex="poster">告知ポスター</button>
     <button data-ex="naming">アプリの名前</button>
   </nav>
-  <button class="add" id="add"></button>
+  <div class="actions">
+    <span class="fnote" id="fnote" role="status" hidden></span>
+    <button class="add" id="add" type="button"></button>
+    <button class="finish" id="finish" type="button"></button>
+  </div>
 </header>
 <div id="pop" hidden></div>
 <button id="ask" hidden></button>
@@ -254,6 +270,7 @@ const ICONS = {
   tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
   layout: '<rect width="18" height="7" x="3" y="3" rx="1"/><rect width="9" height="7" x="3" y="14" rx="1"/><rect width="5" height="7" x="16" y="14" rx="1"/>',
   messageQ: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+  fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
 }
 function icon(name, size = 16) {
   const s = h('span', { class: 'ic' })
@@ -777,7 +794,7 @@ viewport.addEventListener('pointerdown', e => {
   viewport.addEventListener('lostpointercapture', () => {
     viewport.removeEventListener('pointermove', move); viewport.classList.remove('panning')
     // 動かさずに離したら、その場所に付箋を置く。ポップオーバーを閉じるためのクリックでは置かない
-    if (moved || dismissed) return
+    if (moved || dismissed || isLocked()) return
     const note = createNote({ x: ox - pan.x - 24, y: oy - pan.y - 20 })
     note.ta.focus({ preventScroll: true })
   }, { once: true })
@@ -854,6 +871,7 @@ let linksQueued = false
 function scheduleLinks() { if (!linksQueued) { linksQueued = true; requestAnimationFrame(drawLinks) } }
 function drawLinks() {
   linksQueued = false
+  syncFinish()   // 返事を待つ間は終えられない。busy が変わるたびに scheduleLinks が呼ばれるので、ここで合わせる
   linksSvg.innerHTML = ''
   for (const l of links) {
     const a = rectOf(l.from), b = rectOf(l.to)
@@ -1061,6 +1079,9 @@ function poster({ style, color, title, sub = '', date = '12.5 FRI 19:00', emph =
 
 /* ============ 付箋（人） ============ */
 function allSections(note) { return note.matches.flatMap(m => m.entry.sections) }
+// 確認済みの前提 ([アイコン, 前提の項目] の並び) と、それを文にしたもの。返事を頼むときと、まとめの記録で、同じものを使う
+const confirmed = note => note.matches.flatMap(m => m.entry.sections.map(s => [m.entry.icon, s])).filter(([, s]) => isConfirmed(note, s))
+const say = (note, s) => s.say[0] + fmt(s, note.decisions[s.key]) + s.say[1]
 function createNote({ x, y, text = '', quote = null }) {
   const note = { kind: 'note', x, y, decisions: {}, touched: new Set(), matches: [], sent: false, composing: false, quote, judged: newJudged() }
   const ta = h('textarea', { rows: 1, placeholder: quote ? 'ここについて聞きたいこと' : '何を考えますか？', 'aria-label': '付箋' })
@@ -1079,7 +1100,7 @@ function createNote({ x, y, text = '', quote = null }) {
   const grow = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
   ta.addEventListener('input', e => {
     j.rev++   // 変換中の入力も数える。変換の前の本文への答えを、変換の途中で使わないため
-    grow(); send.disabled = !ta.value.trim()
+    grow(); send.disabled = !ta.value.trim(); syncFinish()
     // 変換中は下線の位置がずれるので隠し、確定してから解析する
     mirror.classList.add('stale')
     if (e.isComposing) { clearTimeout(j.idle); j.due = false; return }
@@ -1099,7 +1120,7 @@ function createNote({ x, y, text = '', quote = null }) {
   ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendNote(note) } })
   send.onclick = () => sendNote(note)
   j.due = !!text.trim()   // 書き込まれた本文 (例文) は、もう書き終わっている
-  requestAnimationFrame(() => { grow(); send.disabled = !ta.value.trim(); if (text) analyzeNote(note) })
+  requestAnimationFrame(() => { grow(); send.disabled = !ta.value.trim(); syncFinish(); if (text) analyzeNote(note) })
   return note
 }
 function openNotePop(note, anchor, sections) {
@@ -1165,7 +1186,8 @@ function sendNote(note) {
 function createCard(note) {
   const pos = placeBeside(note, 380, 240)
   // gen は part2 の世代。abort はその世代の fetch を止める
-  const card = { kind: 'card', x: pos.x, y: pos.y, note, filled: {}, gen: 0, abort: null, part1Done: false, busy: true, attention: false }
+  // draftTokens / continuationTokens は、いま画面にある書き出しと続き (まとめの記録の材料)。continuationTokens は、いまの選択に対して書かれたものだけを持つ
+  const card = { kind: 'card', x: pos.x, y: pos.y, note, filled: {}, gen: 0, abort: null, part1Done: false, busy: true, attention: false, draftTokens: null, continuationTokens: null, error: null }
   const snippet = note.ta.value.replace(/\s+/g, ' ')
   card.decisionsEl = h('ul', { class: 'decisions', hidden: true })
   card.part1 = h('div', { class: 'part' })
@@ -1192,7 +1214,7 @@ function clearAttention(card) { if (!card.attention) return; card.attention = fa
 function values(card) { return { ...card.note.decisions, ...card.filled } }
 // 失敗はカードの下に出し、「もう一度」で失敗した段階だけやり直す
 function failCard(card, error, retry) {
-  card.busy = false; scheduleLinks()
+  card.busy = false; card.error = error.message; scheduleLinks()
   card.skel.remove()
   const again = h('button', { class: 'retry', type: 'button' }, 'もう一度')
   again.onclick = () => { again.disabled = true; retry() }
@@ -1202,12 +1224,12 @@ function failCard(card, error, retry) {
 }
 async function runCard(card) {
   const note = card.note
-  card.busy = true; scheduleLinks()
+  card.busy = true; card.error = null; scheduleLinks()
   card.foot.className = 'cfoot'; card.foot.textContent = ''
   if (!card.skel.isConnected) card.body.prepend(card.skel)
   setNoteStatus(note, 'thinking', '考えています')
-  const lines = note.matches.flatMap(m => m.entry.sections.map(s => [m.entry.icon, s])).filter(([, s]) => isConfirmed(note, s))
-  const assumptions = lines.map(([, s]) => s.say[0] + fmt(s, note.decisions[s.key]) + s.say[1])
+  const lines = confirmed(note)
+  const assumptions = lines.map(([, s]) => say(note, s))
   try {
     card.plan = await adapter.compose(note.ta.value, note.decisions, note.quote, assumptions)
   } catch (e) { failCard(card, e, () => runCard(card)); return }
@@ -1219,7 +1241,8 @@ async function runCard(card) {
   }
   setNoteStatus(note, 'arrived', '返事が届きました')
   setAttention(card)
-  await streamTokens(card, card.part1, card.plan.part1(values(card)), 0)
+  card.draftTokens = card.plan.part1(values(card))
+  await streamTokens(card, card.part1, card.draftTokens, 0)
   card.part1Done = true
   afterPart1(card)
 }
@@ -1239,7 +1262,7 @@ let contTimers = new WeakMap()
 function continueCard(card) {
   clearTimeout(contTimers.get(card))
   // 選び直しの連打を待つ間にも、走っている要求と描画は先に止める
-  card.gen++; card.abort?.abort()
+  card.gen++; card.abort?.abort(); card.continuationTokens = null
   card.foot.className = 'cfoot'; card.foot.textContent = ''
   contTimers.set(card, setTimeout(() => writeContinuation(card), 650))
 }
@@ -1247,7 +1270,7 @@ async function writeContinuation(card) {
   const g = ++card.gen
   card.abort?.abort()
   const ac = card.abort = new AbortController()
-  card.busy = true; scheduleLinks()
+  card.busy = true; card.error = null; card.continuationTokens = null; scheduleLinks()
   card.part2.replaceChildren()
   card.foot.className = 'cfoot'; card.foot.textContent = '続きを書いています'
   setNoteStatus(card.note, 'thinking', '続きを書いています')
@@ -1259,6 +1282,7 @@ async function writeContinuation(card) {
     return
   }
   if (g !== card.gen) return
+  card.continuationTokens = tokens
   await streamTokens(card, card.part2, tokens, g)
   if (g !== card.gen) return
   card.busy = false; scheduleLinks()
@@ -1303,13 +1327,14 @@ async function typeInline(el, parts, card, v, alive) {
       if (key in card.filled) { b.textContent = fmt(spec, card.filled[key]); b.classList.add('filled') }
       b.onclick = () => openPop(b, [{ ...spec, key }], k => card.filled[k] ?? (spec.type === 'range' ? spec.def : undefined), (k, val) => fillBlank(card, k, val))
       el.append(b); await sleep(260)
-    } else if (part.ref) {
-      // モデルが付けた空欄のキーは、付箋の前提のキーと重なりうるので、空欄を先に探す
-      const sec = [...Object.entries(card.plan.blanks).map(([k, s]) => ({ ...s, key: k })), ...allSections(card.note)].find(s => s.key === part.ref)
-      const val = v[part.ref]
-      el.append(h('span', { class: 'ref' }, val == null ? '' : sec ? fmt(sec, val) : fmtDefault(val)))
-    }
+    } else if (part.ref) el.append(h('span', { class: 'ref' }, refText(card, part.ref, v)))
   }
+}
+// 続きの中で、選んだ値を指す箇所の文字。モデルが付けた空欄のキーは、付箋の前提のキーと重なりうるので、空欄を先に探す
+function refText(card, key, v) {
+  const sec = [...Object.entries(card.plan.blanks).map(([k, s]) => ({ ...s, key: k })), ...allSections(card.note)].find(s => s.key === key)
+  const val = v[key]
+  return val == null ? '' : sec ? fmt(sec, val) : fmtDefault(val)
 }
 function renderPosters(v) {
   const style = v.style || '幾何学的', color = COLORS[v.color] || v.color || '#ef5a3c', theme = v.theme || 'Web', emph = v.title || '大きく'
@@ -1387,6 +1412,67 @@ function panTo(item) {
   requestAnimationFrame(step)
 }
 window.addEventListener('resize', scheduleMarkers)
+
+/* ============ まとめて終える ============
+   ボードの記録を server.mjs に送ると、呼び出し元のセッションがまとめを Markdown にして保存し、サーバーは終わる。
+   記録は、いまの画面の姿そのまま。付箋は作られた順で、中身のある付箋だけを数える (始めに置かれた空の付箋は除く)。
+   from は、引用元の返事を持つ付箋の番号 (1 から)。card は返事の書き出し (空欄は選んだ値で埋め、未選択は［名前］)、選んだ値、続き、失敗の理由 */
+function tokensToText(card, tokens) {
+  const v = values(card)
+  const blank = key => { const spec = card.plan.blanks[key]; return key in card.filled ? fmt(spec, card.filled[key]) : `［${spec.label}］` }
+  const inline = parts => [].concat(parts).map(p => typeof p === 'string' ? p : p.blank ? blank(p.blank) : refText(card, p.ref, v)).join('')
+  return tokens.flatMap(t => t.ul ? t.ul.map(li => '- ' + inline(li)) : t.h ? ['## ' + inline(t.h)] : t.quote ? ['> ' + inline(t.quote)] : t.p ? [inline(t.p)] : []).join('\n')
+}
+function cardRecord(card) {
+  const blanks = card.plan?.blanks ?? {}
+  const body = tokens => tokens ? tokensToText(card, tokens) || null : null
+  return {
+    draft: body(card.draftTokens),
+    filled: Object.keys(blanks).filter(k => k in card.filled).map(k => ({ label: blanks[k].label, value: fmt(blanks[k], card.filled[k]) })),
+    continuation: body(card.continuationTokens),
+    error: card.error?.slice(0, 1000) ?? null,
+  }
+}
+function boardRecord(items, links) {
+  const notes = items.filter(it => it.kind === 'note' && it.ta.value.trim())
+  const number = new Map(notes.map((n, i) => [n, i + 1]))
+  return {
+    notes: notes.map(note => {
+      const card = items.find(it => it.kind === 'card' && it.note === note)
+      const source = links.find(l => l.dashed && l.to === note)?.from.note
+      return { text: note.ta.value, quote: note.quote, from: number.get(source) ?? null, assumptions: confirmed(note).map(([, s]) => say(note, s)), card: card ? cardRecord(card) : null }
+    }),
+  }
+}
+
+// idle → saving → saved | failed。failed からはもう一度 saving に入れる。saved は終わりで、サーバーも終わる。
+// saving と saved の間は、ボードを動かせない (記録を送ったあとの変更は、まとめに入らないので)
+let wrap = { state: 'idle' }
+const finishBtn = $('#finish'), fnote = $('#fnote')
+const isLocked = () => wrap.state === 'saving' || wrap.state === 'saved'
+// 付箋に言葉があり、返事を待っているものが無いときだけ終えられる
+const canFinish = () => !isLocked() && items.some(it => it.kind === 'note' && it.ta.value.trim()) && !items.some(it => it.kind === 'card' && it.busy)
+function syncFinish() { finishBtn.disabled = !canFinish() }
+function renderWrap() {
+  const { state } = wrap
+  world.inert = isLocked(); $('#add').disabled = isLocked()
+  finishBtn.hidden = state === 'saved'; finishBtn.classList.toggle('saving', state === 'saving'); finishBtn.setAttribute('aria-busy', state === 'saving')
+  fnote.hidden = state !== 'saved' && state !== 'failed'
+  fnote.className = 'fnote' + (state === 'failed' ? ' failed' : '')
+  // 保存先は、作業ディレクトリからの場所だけを出す。絶対パスは title に置く
+  const [shown, full] = state === 'saved' ? [wrap.path.split('/').slice(-2).join('/'), wrap.path] : state === 'failed' ? [wrap.error, wrap.error] : ['', '']
+  fnote.title = full
+  fnote.replaceChildren(...(state === 'saved' ? [icon('check', 13)] : []), h('span', {}, shown))
+  syncFinish()
+}
+async function finishBoard() {
+  wrap = { state: 'saving' }; closePop(); hideAsk(); renderWrap()
+  try { wrap = { state: 'saved', path: (await post('/summary', boardRecord(items, links))).path } } catch (e) { wrap = { state: 'failed', error: e.message } }
+  renderWrap()
+}
+finishBtn.append(icon('fileText', 14), 'まとめて終える')
+finishBtn.onclick = finishBoard
+if (DEMO) finishBtn.remove()   // 見本にはまとめる相手がいない
 
 /* ============ 起動 ============ */
 const EXAMPLES = {

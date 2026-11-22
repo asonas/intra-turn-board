@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "markdown"],
+  "properties": {
+    "title": { "type": "string", "description": "まとめの短い題。30字以内" },
+    "markdown": { "type": "string", "description": "まとめの本文 (Markdown)。title の見出しは含めない" }
+  }
+}
