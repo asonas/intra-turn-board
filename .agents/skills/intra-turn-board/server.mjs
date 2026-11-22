@@ -7,11 +7,13 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { CAPS, extract, locateTranscript, modelJson as parseModelJson, prefilteredPrompt, validateInventory } from './inventory.mjs'
+import { BASE_URL, ENDPOINT_PATH, LIMITS, judgeRequest, judgeValues } from './judge.mjs'
 
 /* ============ ホスト ============
    呼び出し元のエージェントごとに、CLI の引数の組み立てと標準出力の読み方を1か所に持つ。
    draft / continue は呼び出し元のセッションを fork する。どちらも ephemeral なので、セッションの台帳や後片付けは要らない。
-   inventory は会話に紐づかない別の呼び出しで、発話だけを渡して軽いモデルに在庫を作らせる (issue #2 の PL)。 */
+   inventory は会話に紐づかない別の呼び出しで、発話だけを渡して軽いモデルに在庫を作らせる (issue #2 の PL)。
+   judge (下線の判定) は CLI を使わず、Jev の HTTP API を直接1回呼ぶ (issue #1)。 */
 function parseClaude(stdout) {
   const out = JSON.parse(stdout)
   const result = Array.isArray(out) ? out.findLast(e => e.type === 'result') : out
@@ -88,6 +90,20 @@ function resolveConfig(argv, env) {
   return { host, session, model, effort, inventoryModel }
 }
 
+// Jev への接続。キーは環境変数 TYPESAFE_API_KEY だけから読み、config にもログにも子プロセスの環境にも入れない。
+// INTRA_TURN_JEV_URL (テスト用) は、https か、手元 (127.0.0.1 / localhost) への http だけを通す。キーを平文で外へ出さないため
+function resolveJev(env) {
+  let base = BASE_URL
+  if (env.INTRA_TURN_JEV_URL) {
+    let u
+    try { u = new URL(env.INTRA_TURN_JEV_URL) } catch { throw new Error('INTRA_TURN_JEV_URL が URL ではありません') }
+    const local = ['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname)
+    if (u.protocol !== 'https:' && !(u.protocol === 'http:' && local)) throw new Error('INTRA_TURN_JEV_URL は https の URL にしてください (http は 127.0.0.1 と localhost だけ)')
+    base = u.href.replace(/\/+$/, '')
+  }
+  return { key: env.TYPESAFE_API_KEY || undefined, endpoint: base + ENDPOINT_PATH }
+}
+
 /* ============ 入力と出力の検証 ============ */
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status }
@@ -129,6 +145,16 @@ function continueInput(body) {
   })
   if (!filled.length) throw bad('filled が空です')
   return { ...input, draft: text(body.draft, 'draft', 20000), filled }
+}
+// 判定する候補は、付箋の本文にある語だけ。Jev は state.candidates[i] を本文と照らして答えるので、本文に無い語は聞かない
+function judgeInput(body) {
+  if (!body || typeof body !== 'object') throw bad('リクエストの形式が不正です')
+  const note = text(body.text, 'text', LIMITS.text)
+  const candidates = list(body.candidates, 'candidates', LIMITS.candidates, c => text(c, 'candidates', LIMITS.text))
+  if (!candidates.length) throw bad('candidates は1件以上で指定してください')
+  if (new Set(candidates).size !== candidates.length) throw bad('candidates に重複があります')
+  if (candidates.some(c => !note.includes(c))) throw bad('candidates は text に含まれる語にしてください')
+  return { note, candidates }
 }
 
 // blocks を検証して、本文が参照する [[key]] の集合を返す。allowed に無いキーはボードに出ると文字化けになるので落とす
@@ -226,9 +252,11 @@ const STAGES = {
 }
 
 /* ============ モデル呼び出し ============ */
-function run(host, { argv, cwd, env, input, parse, signal }) {
+function run(host, { argv, cwd, env = process.env, input, parse, signal }) {
   const { bin } = HOSTS[host]
-  const child = spawn(bin, argv, { signal, cwd, env, stdio: ['pipe', 'pipe', 'inherit'] })
+  // 子の claude / codex はツールを使えるので、Jev のキーは渡さない
+  const { TYPESAFE_API_KEY, ...childEnv } = env
+  const child = spawn(bin, argv, { signal, cwd, env: childEnv, stdio: ['pipe', 'pipe', 'inherit'] })
   const done = new Promise((resolve, reject) => {
     let stdout = ''
     child.stdout.setEncoding('utf8').on('data', part => { stdout += part })
@@ -306,10 +334,47 @@ async function runStage(config, schemas, stage, body, signal) {
   }
 }
 
+/* ============ 下線の判定 ============
+   付箋の候補の語ごとに、書かれていない前提を AI が置く必要があるかを Jev に聞き、0..1 の値で返す。どれを下線にするかはボードが決める。
+   1回の呼び出しに全候補を入れ、リトライはしない。入力中に何度も聞くので、遅ければ待たずに諦めて、ボードは規則に戻る。
+   キーが無いときは Jev を呼ばず 503 を返す。ボードはそれを見て、そのページでは聞かなくなる (ログは Jev を呼んだときだけ) */
+const JUDGE_TIMEOUT_MS = 1500
+
+async function judge(jev, body, signal) {
+  if (!jev.key) throw new HttpError(503, 'TYPESAFE_API_KEY がサーバーの環境に無いので、下線の判定は使えません')
+  const input = judgeInput(body)
+  const start = Date.now()
+  const log = entry => console.log(JSON.stringify({ stage: 'judge', ms: Date.now() - start, ...entry }))
+  try {
+    let res, raw
+    try {
+      res = await fetch(jev.endpoint, {
+        method: 'POST', headers: { Authorization: `Bearer ${jev.key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(judgeRequest(input.note, input.candidates)), signal,
+      })
+      raw = await res.text()
+    } catch (error) {
+      // signal は、ボードが取り消したときと、時間切れ (TimeoutError) のときに止まる。それ以外は接続の失敗
+      if (signal.aborted) throw signal.reason?.name === 'TimeoutError' ? new HttpError(502, `Jev が${JUDGE_TIMEOUT_MS / 1000}秒以内に応えませんでした`) : new HttpError(499, 'ボードがリクエストを取り消しました')
+      throw new HttpError(502, 'Jev に接続できませんでした')
+    }
+    if (res.status !== 200) throw new HttpError(502, res.status === 401 || res.status === 403 ? `Jev が認証に失敗しました (HTTP ${res.status})` : `Jev がエラーを返しました (HTTP ${res.status})`)
+    let json, values
+    try { json = JSON.parse(raw) } catch { throw invalid('Jev の応答が JSON ではありません') }
+    try { values = judgeValues(json, input.candidates) } catch (error) { throw invalid(error.message) }
+    const ms = Date.now() - start
+    log({ ms, ...(typeof json.usage?.input_tokens === 'number' && { input_tokens: json.usage.input_tokens }), n: input.candidates.length })
+    return { values, model: typeof json.model === 'string' ? json.model : 'unknown', ms }
+  } catch (error) {
+    log({ error: error.message })
+    throw error
+  }
+}
+
 /* ============ サーバー ============ */
 async function main() {
-  let config
-  try { config = resolveConfig(process.argv.slice(2), process.env) } catch (error) { console.error(error.message); process.exit(1) }
+  let config, jev
+  try { config = resolveConfig(process.argv.slice(2), process.env); jev = resolveJev(process.env) } catch (error) { console.error(error.message); process.exit(1) }
 
   const token = randomBytes(24).toString('hex')
   const page = await readFile(new URL('board.html', import.meta.url))
@@ -317,6 +382,13 @@ async function main() {
   for (const { name } of Object.values(STAGES)) {
     const path = fileURLToPath(new URL(`${name}.json`, import.meta.url))
     schemas[name] = { path, json: JSON.stringify(JSON.parse(await readFile(path, 'utf8'))) }
+  }
+
+  // POST のパスごとの処理と、待つ時間の上限。draft / continue は呼び出し元のセッションを fork するので長く待つ。judge は短い
+  const routes = {
+    '/draft': { timeoutMs: 180000, run: (body, signal) => runStage(config, schemas, STAGES['/draft'], body, signal) },
+    '/continue': { timeoutMs: 180000, run: (body, signal) => runStage(config, schemas, STAGES['/continue'], body, signal) },
+    '/judge': { timeoutMs: JUDGE_TIMEOUT_MS, run: (body, signal) => judge(jev, body, signal) },
   }
 
   let inventory = { state: 'pending' }
@@ -340,8 +412,8 @@ async function main() {
     if (req.method !== 'POST' || req.headers.origin !== origin) {
       res.writeHead(403).end(); return
     }
-    const stage = STAGES[url.pathname]
-    if (!stage) { res.writeHead(404).end(); return }
+    const route = routes[url.pathname]
+    if (!route) { res.writeHead(404).end(); return }
     const controller = new AbortController()
     res.on('close', () => controller.abort())
     try {
@@ -354,10 +426,10 @@ async function main() {
       }
       let body
       try { body = JSON.parse(Buffer.concat(chunks)) } catch { throw bad('リクエストが JSON ではありません') }
-      const result = await runStage(config, schemas, stage, body, AbortSignal.any([controller.signal, AbortSignal.timeout(180000)]))
+      const result = await route.run(body, AbortSignal.any([controller.signal, AbortSignal.timeout(route.timeoutMs)]))
       res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(result))
     } catch (error) {
-      const message = error.name === 'AbortError' ? '180秒以内に返事が届きませんでした' : error.message
+      const message = error.name === 'AbortError' ? `${route.timeoutMs / 1000}秒以内に返事が届きませんでした` : error.message
       res.writeHead(error.status ?? 502, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: message }))
     }
   })

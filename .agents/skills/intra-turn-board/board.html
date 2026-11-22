@@ -399,33 +399,133 @@ function inventoryEntry(item, index) {
 const isDecided = (note, sec) => note.decisions[sec.key] !== undefined
 
 /* ============ 前提の解析（Feedforward） ============
-   入力中の文から前提を見つける。モデルは呼ばず、常にこのローカルの規則だけで動く。
-   LEXICON の語を先に取り、空いている分（合計3つまで）を Kuromoji の候補で埋める。
+   入力中の文から、前提を置く語を見つけて下線を引く。LEXICON の語を先に取り、空いている分を Kuromoji の候補で埋める。
+   候補の選び方は2つ。ローカルの規則 (pickByRule) と、サーバーの /judge が返す値による選び方 (selectJudged、下の「下線の判定」)。
+   規則は、答えが届くまでと、答えの無い環境 (file://、キーが無い、失敗) で使う。どちらも、LEXICON の語と合わせて上限まで。
    候補が在庫の論点に当たれば、一般的な問いの代わりに在庫の問いを開く。LEXICON の語は在庫に置き換えない */
 const MAX_ASSUMPTIONS = 3
-function analyze(text) {
+
+// 本文から決まる材料。LEXICON の語 (hits)、それと重ならない Kuromoji の候補 (rank 順)、各候補が当たる在庫の論点 (-1 は無し)
+function scan(text) {
   const hits = []
   for (const e of LEXICON) {
     let best = null
     for (const w of e.words) { const i = text.indexOf(w); if (i >= 0 && (!best || i < best.start)) best = { start: i, end: i + w.length } }
     if (best) hits.push({ ...best, entry: e })
   }
-  const len = text.trim().length, lexicon = hits.length
-  if (len >= 6) {
-    const open = inventory?.open ?? []
-    const candidates = keywordCandidates(text).filter(c => !hits.some(m => c.start < m.end && m.start < c.end))
-    const matched = matchInventory(candidates.map(c => c.surface), open)
-    // 上限があるので、会話から来た問いに当たる語を、一般的な問いの語より先に使う
-    candidates.map((c, i) => ({ c, item: matched[i] }))
-      .sort((a, b) => (b.item >= 0) - (a.item >= 0))
-      .slice(0, Math.max(0, MAX_ASSUMPTIONS - lexicon))
-      .forEach(({ c, item }) => hits.push({ start: c.start, end: c.end, entry: item >= 0 ? inventoryEntry(open[item], item) : genericEntry(c) }))
-  }
-  if (!lexicon && len >= 8) hits.push({ start: -1, end: -1, entry: GENERIC_TOP })
+  const len = text.trim().length, open = inventory?.open ?? []
+  const candidates = len >= 6 ? keywordCandidates(text).filter(c => !hits.some(m => c.start < m.end && m.start < c.end)) : []
+  return { hits, len, open, candidates, matched: matchInventory(candidates.map(c => c.surface), open) }
+}
+
+// 選んだ候補 (chosen: [{ c, item, value? }]) を LEXICON の語と並べて、1つの解析結果にする。value は /judge の値で、規則で選んだ語には無い
+function arrange(sc, chosen) {
+  const hits = [...sc.hits]
+  for (const { c, item, value } of chosen) hits.push({ start: c.start, end: c.end, entry: item >= 0 ? inventoryEntry(sc.open[item], item) : genericEntry(c), ...(value !== undefined && { value }) })
+  if (!sc.hits.length && sc.len >= 8) hits.push({ start: -1, end: -1, entry: GENERIC_TOP })
   hits.sort((a, b) => a.start - b.start)
   const out = []; let last = -1
   for (const m of hits) { if (m.start >= 0 && m.start < last) continue; out.push(m); if (m.start >= 0) last = m.end }
   return out
+}
+
+// ローカルの規則。上限があるので、会話から来た問いに当たる語を、一般的な問いの語より先に使う
+function pickByRule(sc) {
+  return sc.candidates.map((c, i) => ({ c, item: sc.matched[i] }))
+    .sort((a, b) => (b.item >= 0) - (a.item >= 0))
+    .slice(0, Math.max(0, MAX_ASSUMPTIONS - sc.hits.length))
+}
+const analyze = (text, sc = scan(text)) => arrange(sc, pickByRule(sc))
+
+/* ============ 下線の判定（Jev） ============
+   Kuromoji の候補ごとに「書かれていない前提を AI が置く必要があるか」の値 (0..1) を、サーバーの /judge から非同期に受け取り、
+   値の高い語を下線にする (規則に代わる選び方)。LEXICON の語は聞かず、先に枠を取る。
+   Jev は同じ付箋でも値が揺れ、下線の集合が変わる (計測で20件中12件)。入力のたびに下線が出入りしないよう、次の3つで揺れを受けない。
+   (a) 本文が同じなら聞き直さず、前の答えを使う。
+   (b) 下線の語は 0.6 を割るまで残し、新しい語は 0.7 以上で入れる。
+   (c) 文として閉じた (。！？!? か改行で終わる) 文の候補は、その文の候補の集合が変わるまで、最初に付いた値のままにする。
+   答えを待つ間も、下線にした語は残す。規則に戻るのは、1回目の答えが届くまでと、失敗したときだけ。 */
+const JUDGE = { enter: 0.7, stay: 0.6, cap: 5, cacheSize: 64, candidates: 30, text: 8000 }   // candidates と text は、server.mjs の judge.mjs の LIMITS と同じ
+let judgeOn = location.protocol !== 'file:'   // file:// の見本にはサーバーが無い。キーの無いサーバー (503) だと、そのページでは聞かない
+
+// 付箋1枚ぶんの判定の状態。判定に関わる状態はここに集める
+//   rev     本文の版。入力のたびに増える。問い合わせに付けて、古い答えを捨てるのに使う
+//   ready   1回目の答えを使い始めたか。false の間は規則で選ぶ
+//   cache   本文 → { 語 → 値 }。(a)
+//   frozen  閉じた文の番号 → { sig: 候補の集合, values }。(c)
+//   shown   いま下線にしている語 → 値。(b)
+//   flight  問い合わせ中の { rev, abort }
+//   failed  失敗した本文。同じ本文で聞き直さない
+const newJudged = () => ({ rev: 0, ready: false, cache: new Map(), frozen: new Map(), shown: new Map(), flight: null, failed: null })
+
+const SENTENCE = /([^。！？!?\n]*(?:[。！？!?]+[」』）)]*|\n))|[^。！？!?\n]+$/g
+function sentencesOf(text) {
+  return [...text.matchAll(SENTENCE)].map(m => ({ start: m.index, end: m.index + m[0].length, finished: m[1] !== undefined }))
+}
+
+// 候補ごとの値を決める。fresh は本文に対する答え (待っている間は null)。閉じた文は、frozen にある値を優先し、無ければ fresh の値を frozen にする。
+// 閉じていない最後の文は fresh の値。返す frozen は、いま閉じている文のぶんだけ
+function settle(text, candidates, frozen, fresh) {
+  const values = new Map(), next = new Map()
+  sentencesOf(text).forEach((s, k) => {
+    const mine = candidates.filter(c => c.start >= s.start && c.start < s.end)
+    const judged = new Map(mine.filter(c => fresh?.has(c.surface)).map(c => [c.surface, fresh.get(c.surface)]))
+    if (!s.finished) { for (const [surface, v] of judged) values.set(surface, v); return }
+    const sig = JSON.stringify(mine.map(c => c.surface).sort())
+    const own = frozen.get(k)?.sig === sig ? frozen.get(k).values : fresh ? judged : null
+    if (!own) return
+    next.set(k, { sig, values: own })
+    for (const [surface, v] of own) values.set(surface, v)
+  })
+  return { values, frozen: next }
+}
+
+// 下線にする語を選ぶ。値の無い語 (答えを待っている) は、いま下線ならそのまま残す。
+// 在庫の論点に当たる語を先に、あとは値の高い順に、LEXICON の残りの枠まで。候補どうしは重ならない (Kuromoji の連なりは別々で、LEXICON と重なる候補は scan が外す)
+function selectJudged(sc, values, shown) {
+  const eligible = []
+  sc.candidates.forEach((c, i) => {
+    const on = shown.has(c.surface), value = values.get(c.surface) ?? shown.get(c.surface)
+    if (value !== undefined && (value >= JUDGE.enter || (on && value >= JUDGE.stay))) eligible.push({ c, item: sc.matched[i], value })
+  })
+  eligible.sort((a, b) => (b.item >= 0) - (a.item >= 0) || b.value - a.value || a.c.start - b.c.start)
+  return eligible.slice(0, Math.max(0, JUDGE.cap - sc.hits.length))
+}
+
+function remember(cache, text, values) {
+  cache.delete(text); cache.set(text, values)
+  if (cache.size > JUDGE.cacheSize) cache.delete(cache.keys().next().value)
+}
+function abortJudge(note) {
+  const { flight } = note.judged
+  if (flight) { flight.abort.abort(); note.judged.flight = null }
+}
+// 失敗したら規則に戻す。同じ本文では聞き直さない (入力が進めばまた聞く)
+function fallBack(note) {
+  const j = note.judged
+  if (!j.ready) return
+  Object.assign(j, { ready: false, frozen: new Map(), shown: new Map() })
+  refreshLater.add(note); flushRefresh()
+}
+// 答えは cache に入れ、描き直しは analyzeNote に任せる。そうすれば、答えが届いても、ポップオーバーを開いている付箋は閉じるまで待つ (refreshLater)
+function askJudge(note, text, candidates) {
+  const j = note.judged
+  if (j.flight && j.flight.rev !== j.rev) abortJudge(note)   // 入力が進んだので、古い問い合わせは要らない
+  if (!judgeOn || note.sent || !candidates.length || text.length > JUDGE.text || j.cache.has(text) || j.failed === text || j.flight) return
+  const flight = j.flight = { rev: j.rev, abort: new AbortController() }
+  const names = candidates.slice(0, JUDGE.candidates).map(c => c.surface)
+  post('/judge', { text, candidates: names }, flight.abort.signal).then(r => {
+    if (j.flight === flight) j.flight = null
+    if (flight.rev !== j.rev) return   // 入力が進んだあとに届いた答えは使わない
+    remember(j.cache, text, new Map(Object.entries(r.values)))
+    refreshLater.add(note); flushRefresh()
+  }, e => {
+    if (j.flight === flight) j.flight = null
+    if (e.name === 'AbortError') return
+    if (e.status === 503) judgeOn = false
+    j.failed = text
+    if (flight.rev === j.rev) fallBack(note)
+  })
 }
 
 /* ============ 応答の計画（Leaving Blanks） ============
@@ -620,7 +720,7 @@ async function post(path, body, signal) {
     throw new Error('サーバーに接続できませんでした')
   }
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || `サーバーがエラーを返しました (${res.status})`)
+  if (!res.ok) throw Object.assign(new Error(data.error || `サーバーがエラーを返しました (${res.status})`), { status: res.status })
   return data
 }
 async function remoteCompose(text, decisions, quote, assumptions) {
@@ -941,7 +1041,7 @@ function poster({ style, color, title, sub = '', date = '12.5 FRI 19:00', emph =
 /* ============ 付箋（人） ============ */
 function allSections(note) { return note.matches.flatMap(m => m.entry.sections) }
 function createNote({ x, y, text = '', quote = null }) {
-  const note = { kind: 'note', x, y, decisions: {}, touched: new Set(), matches: [], sent: false, composing: false, quote }
+  const note = { kind: 'note', x, y, decisions: {}, touched: new Set(), matches: [], sent: false, composing: false, quote, judged: newJudged() }
   const ta = h('textarea', { rows: 1, placeholder: quote ? 'ここについて聞きたいこと' : '何を考えますか？', 'aria-label': '付箋' })
   ta.value = text
   const mirror = h('div', { class: 'mirror', 'aria-hidden': 'true' })
@@ -956,6 +1056,7 @@ function createNote({ x, y, text = '', quote = null }) {
   let timer
   const grow = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
   ta.addEventListener('input', e => {
+    note.judged.rev++   // 変換中の入力も数える。変換の前の本文への答えを、変換の途中で使わないため
     grow(); send.disabled = !ta.value.trim()
     // 変換中は下線の位置がずれるので隠し、確定してから解析する
     mirror.classList.add('stale')
@@ -982,10 +1083,20 @@ function openNotePop(note, anchor, sections) {
     note.decisions[k] = v; note.touched.add(k); renderMirror(note); renderAssume(note)
   }, note)
 }
-function analyzeNote(note) {
-  note.matches = adapter.analyze(note.ta.value)
+// ask が false のときは、判定を新しく聞かない (送る直前の描き直し)
+function analyzeNote(note, { ask = true } = {}) {
+  const text = note.ta.value, j = note.judged, sc = scan(text)
+  const fresh = j.cache.get(text) ?? null
+  if (fresh) j.ready = true
+  if (j.ready) {
+    const { values, frozen } = settle(text, sc.candidates, j.frozen, fresh)
+    const chosen = selectJudged(sc, values, j.shown)
+    j.frozen = frozen; j.shown = new Map(chosen.map(({ c, value }) => [c.surface, value]))
+    note.matches = arrange(sc, chosen)
+  } else note.matches = adapter.analyze(text, sc)
   for (const s of allSections(note)) if (s.def !== undefined && !(s.key in note.decisions)) note.decisions[s.key] = s.def
   renderMirror(note); renderAssume(note)
+  if (ask) askJudge(note, text, sc.candidates)
 }
 const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
 function renderMirror(note) {
@@ -1016,7 +1127,7 @@ function setNoteStatus(note, kind, text) { note.status.className = 'status ' + k
 
 function sendNote(note) {
   if (note.sent || !note.ta.value.trim()) return
-  analyzeNote(note)
+  analyzeNote(note, { ask: false }); abortJudge(note)
   note.sent = true; note.ta.readOnly = true; note.el.classList.add('sent'); note.assume.hidden = true
   closePop()
   setNoteStatus(note, 'thinking', '考えています')
