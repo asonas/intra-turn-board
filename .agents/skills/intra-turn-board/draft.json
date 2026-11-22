@@ -1,26 +1,35 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "before",
-    "label",
-    "after",
-    "choices"
-  ],
+  "required": ["blocks", "blanks"],
   "properties": {
-    "before": {
-      "type": "string"
-    },
-    "label": {
-      "type": "string"
-    },
-    "after": {
-      "type": "string"
-    },
-    "choices": {
+    "blocks": {
       "type": "array",
+      "description": "返事の書き出し。空欄を含む文で止める",
       "items": {
-        "type": "string"
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "text"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["heading", "paragraph", "item", "quote"] },
+          "text": { "type": "string", "description": "プレーンテキスト。空欄は [[key]] と書く" }
+        }
+      }
+    },
+    "blanks": {
+      "type": "array",
+      "description": "本文に残した空欄。2〜3個",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "label", "question", "options", "multiple"],
+        "properties": {
+          "key": { "type": "string", "description": "英小文字で始まる英数字とアンダースコア、32文字以内" },
+          "label": { "type": "string", "description": "空欄に表示する短い名前" },
+          "question": { "type": "string", "description": "ユーザーへの問い" },
+          "options": { "type": "array", "items": { "type": "string" }, "description": "空欄に代入すると文が成立する短い候補。2〜5個" },
+          "multiple": { "type": "boolean", "description": "複数選べるなら true" }
+        }
       }
     }
   }

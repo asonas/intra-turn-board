@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["blocks"],
+  "properties": {
+    "blocks": {
+      "type": "array",
+      "description": "書き出しに続く成果物",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "text"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["heading", "paragraph", "item", "quote"] },
+          "text": { "type": "string", "description": "プレーンテキスト。選ばれた値に触れる箇所は [[key]] と書く" }
+        }
+      }
+    }
+  }
+}
