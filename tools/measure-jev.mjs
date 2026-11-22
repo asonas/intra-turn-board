@@ -33,20 +33,16 @@ import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { selectSpans, mergeWins, chainsOf, overlaps, within, mergeSpans, MARGINS } from './spans.mjs'
+// 基準 B の問いとリクエストの形は、出荷する server.mjs と同じものを読む
+import { ENDPOINT, MODEL, FRAME, target, only, assumeQuestion, ASSUME_EXAMPLES, judgeRequest, judgeValues } from '../.agents/skills/intra-turn-board/judge.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-export const ENDPOINT = 'https://api.typesafe.ai/v1/systemone'
-export const MODEL = 'jev-latest'
 export const USD_PER_M_INPUT = 0.042
 export const THRESHOLDS = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
 export const SCORE_LEVELS = 4
 export const CAP = 3
 
 /* ============ 質問の組み立て（純関数） ============ */
-const FRAME = '`state.note` は、ユーザーが AI に頼む内容を書いた付箋です。'
-const target = (i, s) => `\`state.candidates[${i}]\`（「${s}」）`
-const only = i => `\`state.candidates[${i}]\` だけを判断し、他の候補のことは考えないでください。`
-
 export const KINDS = {
   '人数': '人数、人の数、規模。何人かを決める問い。',
   '日時・期間': 'いつ、いつまで、どれくらいの長さか。',
@@ -107,16 +103,11 @@ export function makeQuestion(name, i, s) {
       type: 'noul', instructions: `${head}この語は、ユーザーが AI に作ってほしい、または決めてほしいもの（成果物そのもの、またはその主要な部分）ですか。依頼の背景や条件、前置きにすぎない語ではありませんか。${only(i)}`,
       criteria: { true: 'ユーザーが AI に求めている成果物そのもの、またはその主要な部分である。', false: '依頼の背景、条件、対象、前置きなどで、成果物ではない。' },
     }
-    /* B: ユーザーが決めた基準（Issue #1 の最新のコメント以降）。語にも「の」でつないだ句にも、同じ文言を送る。
-       impact2 と違い、false の例に地名を挙げない（「日本 → 地域」と合わないため）。例の語は ASSUME_EXAMPLES で、どの付箋にも含めない（selftest） */
-    case 'assume': return {
-      type: 'noul', instructions: `${FRAME}${target(i, s)}は、その付箋にある語、または「の」でつながった語の句です。AI がこの依頼に応えるには、これについて、付箋に書かれていない属性や条件（人数・年齢・地域・日時・予算・対象・調子・長さ・形式・ジャンルなど）を置く必要がありますか。その置き方しだいで、成果物は大きく変わりますか。${only(i)}`,
-      criteria: { true: '付箋に書かれていない属性や条件を AI が置かないと進められず、置き方しだいで成果物が大きく変わる。例えば「海外」なら国や地域、「弁当」なら人数や予算、「論文」なら分量や読み手。', false: '必要な属性や条件が付箋の文面にすでに書かれている。または、どう置いても成果物はほとんど変わらない。例えば「30分」のように値が書かれている語、「お願いします」のような依頼の言い回し。' },
-    }
+    /* B: ユーザーが決めた基準（Issue #1 の最新のコメント以降）。文言は server.mjs と共有する judge.mjs にある */
+    case 'assume': return assumeQuestion(i, s)
     default: throw new Error(`unknown question ${name}`)
   }
 }
-export const ASSUME_EXAMPLES = ['海外', '弁当', '論文', '30分', 'お願いします']
 export function shapeQuestion() {
   return {
     type: 'choice',
@@ -1423,6 +1414,19 @@ async function selftest() {
     assert.equal(Object.keys(rq.body.questions).length, 2 * n.spans.length + 1)
   }
   assert.equal(fxB.notes.filter(n => n.set === 'old').length, 20); assert.equal(fxB.notes.filter(n => n.set === 'heldout').length, 20)
+
+  // 出荷する POST /judge のリクエスト (judge.mjs) は、計測した b と同じ状態・同じ assume の問いを送る。kind と shape は付けない
+  const nb = noteById(fxB, 'birthday'), surfs = nb.spans.map(s => s.surface)
+  const shipped = judgeRequest(nb.text, surfs), measured = buildRequest(nb, 'spans').body
+  assert.deepEqual(shipped.state, measured.state); assert.equal(shipped.model, measured.model)
+  assert.deepEqual(Object.keys(shipped.questions), surfs.map((_, i) => `assume_${i}`))
+  surfs.forEach((_, i) => assert.deepEqual(shipped.questions[`assume_${i}`], measured.questions[`assume_${i}`]))
+  // 答えの検証: 添字で候補の表記に戻す。形が違う、範囲外、足りないときは、一部だけ使わずに全体を捨てる
+  const answersOf = vals => ({ answers: Object.fromEntries(vals.map((v, i) => [`assume_${i}`, { type: 'noul', noul: v }])) })
+  assert.deepEqual(judgeValues(answersOf([0.9, 0]), ['乾杯', '挨拶']), { 乾杯: 0.9, 挨拶: 0 })
+  for (const broken of [null, {}, { answers: {} }, answersOf([0.9]), answersOf([0.9, 1.5]), answersOf([0.9, NaN]), answersOf([0.9, -0.1]), { answers: { assume_0: { type: 'noul', noul: 0.5 }, assume_1: { type: 'score', score: 1 } } }]) {
+    assert.throws(() => judgeValues(broken, ['乾杯', '挨拶']), `壊れた答え: ${JSON.stringify(broken)}`)
+  }
 
   // 分析の通し（B）: 正解の単位に高い値を返す偽の Jev なら、AUC が 1、正解が句の列は margin 0 で句が勝つ
   const fakeB = (oracle) => {
