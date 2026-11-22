@@ -1,0 +1,25 @@
+{
+  "_comment": "事後の診断用。jev-notes.json の underline が Jev の値と合わなかったので、別の見方として「依頼の中心（AI に作ってほしい・決めてほしいもの）の語」を付箋ごとに付けた。Jev の v1 の結果を見たあとに付けたもので、主な集計には使わない。underline が前提の置き場所を指すのに対し、こちらは成果物そのものを指す。",
+  "central": {
+    "travel-kyoto": ["計画"],
+    "birthday": ["献立", "買い物リスト", "乾杯", "挨拶"],
+    "poster": ["告知ポスター"],
+    "naming-app": ["名前"],
+    "farewell-party": ["案内メール", "文面"],
+    "wedding-speech": ["スピーチ", "原稿"],
+    "science-project": ["テーマ"],
+    "budget-app": ["機能"],
+    "hokkaido-trip": ["移動手段", "手配"],
+    "blog-title": ["タイトル"],
+    "login-error": ["エラー表示", "文言"],
+    "react-ts": ["コンポーネント"],
+    "study-talk": ["資料", "構成", "スライド", "文言"],
+    "weekend": ["予定"],
+    "apology-mail": ["メール"],
+    "logo": ["ロゴ"],
+    "moving": ["手順", "チェックリスト"],
+    "readme": ["インストール手順"],
+    "gift": ["誕生日プレゼント"],
+    "offsite": ["比較", "タイムテーブル", "候補地"]
+  }
+}
