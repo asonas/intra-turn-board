@@ -95,7 +95,8 @@ body:not(.hero) #hero>*{pointer-events:none}
 .hero .send{width:32px;height:32px}
 
 /* block */
-.block{position:absolute;left:0;top:0;width:460px;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px 14px 12px;outline:2px solid transparent;outline-offset:3px;transition:background-color .3s,border-color .3s,box-shadow .3s;cursor:grab}
+.block{position:absolute;left:0;top:0;width:460px;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px 14px 12px;outline:2px solid transparent;outline-offset:3px;transition:background-color .3s,border-color .3s,box-shadow .3s;cursor:grab;
+  --pele-bg:var(--surface);--pele-fg:var(--ink);--pele-muted:var(--sub);--pele-line:var(--sub);--pele-surface:var(--surface-2);--pele-surface-alt:var(--surface-3);--pele-border:var(--line-strong);--pele-accent:var(--accent);--pele-radius:8px}
 .block.draft{width:400px;background:transparent;border-color:transparent;box-shadow:none;padding:0}
 .block.draft.lead{width:460px}
 .block.lead .composer.hero{width:auto}
@@ -105,10 +106,13 @@ body:not(.hero) #hero>*{pointer-events:none}
 .block.fresh{animation:ring 1.6s ease-out}
 .block .text,.block .bubble{cursor:text}
 .block .text.onquote{cursor:pointer}
-.block.dragging,.side.dragging{box-shadow:var(--shadow-pop);z-index:5}
+.block.dragging{box-shadow:var(--shadow-pop)}
 body.dragging,body.dragging *{cursor:grabbing!important;user-select:none}
 .quoteline{font-size:12.5px;line-height:1.6;color:var(--sub);border-left:2px solid var(--accent-line);padding:0 0 0 10px;margin:2px 4px 12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
 .quoteline:hover{color:var(--ink)}
+.quoteline.thumb{display:block;line-height:0}
+.quoteline.thumb img,.quoteline.thumb svg{display:inline-block;max-height:52px;max-width:140px;width:auto;height:auto;border-radius:6px;box-shadow:0 0 0 1px var(--line);vertical-align:top}
+.quoteline.thumb:hover img,.quoteline.thumb:hover svg{box-shadow:0 0 0 1px var(--accent-line)}
 /* 前提: 呼び出し元の会話から作る素材。入力欄も影もなく、紙のように左に置く */
 .block.premise{width:440px;background:var(--paper);border-color:var(--line);border-radius:10px;box-shadow:none;padding:20px 24px 18px}
 .block.premise .msg.ai{padding:0}
@@ -120,7 +124,6 @@ body.dragging,body.dragging *{cursor:grabbing!important;user-select:none}
 .msg.user{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .bubble{max-width:85%;background:var(--surface-2);border-radius:12px;padding:5px 12px;white-space:pre-wrap;overflow-wrap:anywhere}
 .msg.ai{padding:0 4px}
-.chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .assumed{list-style:none;margin:0 0 8px;padding:0;font-size:12.5px;line-height:1.8;color:var(--faint);display:flex;flex-wrap:wrap;gap:0 14px}
 .assumed li{display:inline-flex;gap:5px;align-items:center}
 .assumed b{font-weight:500;color:var(--sub)}
@@ -147,26 +150,22 @@ body.dragging,body.dragging *{cursor:grabbing!important;user-select:none}
 .blank:hover{background:var(--hl-pick)}
 .blank.filled{background:transparent;color:var(--ink);padding:0;margin:0;box-shadow:inset 0 -1.5px 0 var(--accent)}
 .ref{text-decoration:underline solid var(--accent-line);text-decoration-thickness:1.5px;text-underline-offset:4px}
-.chipline{margin:4px 0 8px}
-.sidechip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-strong);background:transparent;border-radius:8px;padding:1px 9px 1px 7px;font-size:12.5px;line-height:1.7;color:var(--sub);vertical-align:middle}
-.sidechip:hover{color:var(--ink);background:var(--surface-2)}
-.sidechip.pending .ic,.side.repairing .src{animation:blink 1.1s infinite}
-.sidechip.error{color:var(--danger)}
-
-/* side block */
-.side{position:absolute;left:0;top:0;width:max-content;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px;max-width:560px;outline:2px solid transparent;outline-offset:3px;animation:sidein .32s cubic-bezier(.2,.8,.2,1) both;cursor:grab;
-  --pele-bg:var(--surface);--pele-fg:var(--ink);--pele-muted:var(--sub);--pele-line:var(--sub);--pele-surface:var(--surface-2);--pele-surface-alt:var(--surface-3);--pele-border:var(--line-strong);--pele-accent:var(--accent);--pele-radius:8px}
-.side.image{padding:6px}
-.side.fresh{animation:ring 1.4s ease-out}
-.side .src{margin:0;font:12px/1.65 var(--mono);color:var(--faint);white-space:pre;min-width:200px}
-.side .dia{animation:fadein .3s ease-out;transition:opacity .2s}
-.side .dia svg{display:block}
-.side.stale .dia{opacity:.35}
-.side .err{display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:1.6;color:var(--danger);margin:0 0 8px;max-width:420px}
-.side .err .ic{margin-top:3px}
-.side pre.code{margin:0;padding:10px 12px;overflow:auto;background:var(--surface-2);border-radius:8px;font:12px/1.65 var(--mono);color:var(--ink);white-space:pre}
-.side img{display:block;max-width:340px;max-height:320px;border-radius:9px;animation:fadein .3s ease-out}
-.side .ph{width:340px;height:204px;border-radius:9px;background:linear-gradient(90deg,var(--surface-2) 0,var(--surface-3) 40%,var(--surface-2) 80%);background-size:300% 100%;animation:shimmer 1.4s linear infinite}
+/* 本文の中の画像と図。幅は本文の幅まで、高さは MEDIA_MAX_H まで縮める。押すとそれについて聞ける */
+.media{margin:6px 0 10px;width:fit-content;max-width:100%;border-radius:10px;outline:2px solid transparent;outline-offset:3px;transition:outline-color .15s;user-select:none;-webkit-user-select:none}
+.media.ready{cursor:pointer}
+.media.ready:hover{outline-color:var(--accent-line)}
+.media.quoted{outline-color:var(--hl-pick)}
+.media.picking,.media.flash{outline-color:var(--accent)}
+.media img{display:block;max-width:100%;max-height:360px;border-radius:10px;animation:fadein .3s ease-out}
+.media svg{display:block;animation:fadein .3s ease-out}
+.media .ph{width:340px;max-width:100%;height:204px;border-radius:10px;background:linear-gradient(90deg,var(--surface-2) 0,var(--surface-3) 40%,var(--surface-2) 80%);background-size:300% 100%;animation:shimmer 1.4s linear infinite}
+.media .src{margin:0;padding:8px 10px;border-radius:8px;background:var(--surface-2);font:12px/1.65 var(--mono);color:var(--faint);white-space:pre;overflow:hidden;user-select:text;-webkit-user-select:text}
+.media.repairing .src{animation:blink 1.1s infinite}
+.media .err{display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:1.6;color:var(--danger);margin:0 0 6px}
+.media .err .ic{margin-top:3px}
+.media pre.code{margin:0;padding:8px 10px;overflow:auto;background:var(--surface-2);border-radius:8px;font:12px/1.65 var(--mono);color:var(--ink);white-space:pre;user-select:text;-webkit-user-select:text}
+.msg.user .media{margin:0}
+.msg.user .media img{max-width:280px;max-height:280px}
 
 /* popover */
 #pop{position:fixed;z-index:40;background:var(--surface);border:1px solid var(--line-strong);border-radius:12px;box-shadow:var(--shadow-pop);padding:10px;min-width:220px;max-width:340px;animation:popin .14s ease-out;transform-origin:top left}
@@ -213,7 +212,6 @@ body.dragging,body.dragging *{cursor:grabbing!important;user-select:none}
 @keyframes rise{from{opacity:0;transform:translateY(4px)}}
 @keyframes fadein{from{opacity:0}}
 @keyframes popin{from{opacity:0;transform:scale(.97)}}
-@keyframes sidein{from{opacity:0;transform:translateX(-8px)}}
 @keyframes blink{50%{opacity:.3}}
 @keyframes shimmer{from{background-position:100% 0}to{background-position:-200% 0}}
 @keyframes ring{0%{outline-color:var(--accent-line)}100%{outline-color:transparent}}
@@ -225,7 +223,7 @@ body.dragging,body.dragging *{cursor:grabbing!important;user-select:none}
 <div id="viewport"><div id="dots"></div><div id="world"><svg id="links"></svg></div></div>
 <div id="hero"></div>
 <div id="pop" hidden></div>
-<div id="pill" hidden><input aria-label="ここについて聞く" placeholder="ここについて聞く"><button type="button" class="send go" aria-label="送る"></button></div>
+<div id="pill" hidden><input aria-label="ここについて聞く" placeholder="ここについて聞く"><button type="button" class="send go" aria-label="送る" disabled></button></div>
 <button id="zoom" type="button" hidden></button>
 
 <script>
@@ -264,7 +262,6 @@ const ICONS = {
   layout: '<rect width="18" height="7" x="3" y="3" rx="1"/><rect width="9" height="7" x="3" y="14" rx="1"/><rect width="5" height="7" x="16" y="14" rx="1"/>',
   messageQ: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
   workflow: '<rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/>',
-  image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
   alert: '<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>',
 }
 function icon(name, size = 16) {
@@ -278,32 +275,32 @@ const optV = o => typeof o === 'string' ? o : o.v
 const short = (t, n = 18) => t.length > n ? t.slice(0, n) + '…' : t
 
 /* ============ 盤面のデータ ============
-   Thread  = { id, n, kind: 'chat' | 'premise', x, y, origin: { threadId, msgIndex, quote } | null, beside: threadId | null,
-               pinned: { x, y } | null, anchor?, messages: Message[], composer: Composer | null }
-             x, y は根 (origin も beside も無いスレッド) の置きたい位置。追い質問の位置は持たず、layout() が毎回決める
-             beside は前提の隣で始めた会話。線は引かず、前提の右の列に並べるためだけに使う
-             pinned は人がドラッグして置いた位置。自動の配置はこれを動かさず、周りを流す
-   Message = { role: 'user', parts: [{ text }], decisions, assumptions }
+   Thread  = { id, n, kind: 'chat' | 'premise', pos: { x, y }, origin: { threadId, msgIndex, quote: Quote } | null, lead,
+               anchor?, messages: Message[], composer: Composer | null }
+             pos は作るときに一度だけ決め、以後は人のドラッグだけが変える。伸びても、ほかが伸びても、決め直さない
+             lead は前提の隣で始めた会話。空のまま離れても消さない
+   Quote   = { kind: 'text', text } | { kind: 'image', key, src, alt } | { kind: 'diagram', key, svg, source }
+             画像と図は、聞いた時点の見た目を写して持つ。続きを書き直しても、追い質問の引用は変わらない
+   Message = { role: 'user', parts: [{ text }], images: [{ src }], decisions, assumptions }
            | { role: 'ai', phase, blanks, filled, parts: Token[], more: Token[], decisions, assumptions }
              phase: thinking → drafting → waiting ⇄ continuing → done (done → continuing は選び直し)
    Token   = { p | h: Inline[] } | { ul: Inline[][] } | { quote: Inline[] } | { fence: lang, source, closed } | { image, alt }
    Inline  = 文字列 | { blank: key } | { ref: key }
-   Side    = { id, n, key, kind: 'diagram' | 'image', source, from: { threadId, msgIndex }, status, pinned, svg?, error?, stale? }
-             status: streaming → ready | repairing → ready | error
-             key は「スレッド:発言:何番目の図か」。選び直しで続きを書き直しても、同じ key の図はその場で描き直す
+   画像と図は発言の中に描く。key は「スレッド:発言:何番目か」で、聞いたときの引用と線の起点がこれで元を探す
    Composer = { text, decisions, touched, attachments: [{ id, src }] }
-   線は origin と from から毎回引く。どこにも保存しない */
-const state = { threads: [], sides: [], view: { x: 0, y: 0, z: 1 }, mode: 'hero' }
+   線は origin から毎回引く。どこにも保存しない */
+const state = { threads: [], view: { x: 0, y: 0, z: 1 }, mode: 'hero' }
 let seq = 0
-const ui = new Map()            // thread / side の id → { el, ... }
+const ui = new Map()            // thread の id → { el, msgs, msgEls, comp, quoteEl }
 const newComposer = () => ({ text: '', decisions: {}, touched: new Set(), attachments: [] })
-function newThread({ x = 0, y = 0, origin = null, beside = null, kind = 'chat' }) {
-  const t = { id: 't' + (++seq), n: seq, kind, x, y, origin, beside, pinned: null, messages: [], composer: kind === 'premise' ? null : newComposer() }
+function newThread({ pos = null, origin = null, lead = false, kind = 'chat' }) {
+  const t = { id: 't' + (++seq), n: seq, kind, pos, origin, lead, messages: [], composer: kind === 'premise' ? null : newComposer() }
   state.threads.push(t)
   return t
 }
-const nodeOf = id => state.threads.find(t => t.id === id) || state.sides.find(s => s.id === id)
 const threadOf = id => state.threads.find(t => t.id === id)
+const mediaKey = (t, i, ord) => `${t.id}:${i}:${ord}`
+const mediaEl = key => world.querySelector(`.media[data-key="${key}"]`)
 
 /* ============ 解釈の辞書（Feedforward） ============
    試作は LEXICON の語だけで下線を引く。本番では adapter.analyze を Kuromoji の候補 + /judge + /inventory に差し替える */
@@ -344,7 +341,7 @@ function analyze(text) {
 
 /* ============ 返事の台本（見本） ============
    台本は Markdown で書く。[[key]] は、空欄のキーなら空欄、それ以外は選んだ値の参照になる。
-   ```mermaid のコードブロックと ![alt](src) の画像は、本文に描かず、隣のブロックに出す */
+   ```mermaid のコードブロックと ![alt](src) の画像は、本文の中に描く */
 const SIGHTS = {
   '東山': ['清水寺から二年坂まで、坂を下りながら歩く', '八坂神社の境内で休憩'],
   '嵐山': ['竹林の小径を朝のうちに歩く', '渡月橋のたもとで川をのぞく'],
@@ -453,27 +450,45 @@ const SCRIPTS = {
       return ['## [[feel]]から', ...list.slice(0, count === '1つに絞る' ? 1 : 5).map(([a, b]) => `- ${a}　${b}`)].join('\n')
     },
   }),
-  // 何を選んだかで、掘り下げる向きの選択肢を変える。名前の候補なら響きや意味、前提の一節なら理由や迷い
-  aboutQuote: (quote, from) => {
-    const isName = Object.values(NAMES).flat().some(([a]) => a.includes(quote) || quote.includes(a))
-    const angle = from === 'premise'
-      ? { label: '掘り下げる向き', q: 'どこを掘り下げますか？', type: 'single', options: ['決めた理由', '残っている迷い', '次に試すこと'] }
-      : isName
-        ? { label: '見る点', q: 'どの点から見ますか？', type: 'single', options: ['響き', '意味', '覚えやすさ'] }
-        : { label: '掘り下げる向き', q: 'どこを掘り下げますか？', type: 'single', options: ['なぜそうするか', 'ほかの案', '気をつけること'] }
-    const q = short(quote, 16)
+  // 選んだ一節や画像・図について、人が書いた問いに答える。問いが見る点を名指ししていれば空欄にせず、そのまま答える。
+  // 選択肢は何を選んだかで変える。名前の候補なら響きや意味、前提の一節なら理由や迷い、図なら遷移や名前
+  aboutQuote: (quote, from, question) => {
+    const text = quote.kind === 'text' ? quote.text : quote.alt || ''
+    const isName = quote.kind === 'text' && Object.values(NAMES).flat().some(([a]) => a.includes(text) || text.includes(a))
+    const angle = quote.kind === 'diagram'
+      ? { label: '見る点', q: 'どこから見ますか？', type: 'single', options: ['抜けている遷移', '名前', '分け方'] }
+      : quote.kind === 'image'
+        ? /地図|行程/.test(text)
+          ? { label: '見る点', q: 'どこから見ますか？', type: 'single', options: ['回る順番', '移動の負担', '休憩の場所'] }
+          : { label: '見るところ', q: 'どこから見ますか？', type: 'single', options: ['色', '余白', '文字の大きさ'] }
+        : from === 'premise'
+          ? { label: '掘り下げる向き', q: 'どこを掘り下げますか？', type: 'single', options: ['決めた理由', '残っている迷い', '次に試すこと'] }
+          : isName
+            ? { label: '見る点', q: 'どの点から見ますか？', type: 'single', options: ['響き', '意味', '覚えやすさ'] }
+            : { label: '掘り下げる向き', q: 'どこを掘り下げますか？', type: 'single', options: ['なぜそうするか', 'ほかの案', '気をつけること'] }
+    const q = short(text, 16)
+    const subject = quote.kind === 'diagram' ? 'この図' : quote.kind === 'image' ? 'この画像' : `「${short(text, 24)}」`
     const GENERAL = {
       '決めた理由': [`「${q}」は、試作を触って迷った場面から決めた`, '同じ迷いがほかの場面でも出るかを確かめたい', '理由が一行で言えるなら、そのまま本文に残せる'],
       '残っている迷い': ['実際の会話で同じ判断が通るかは、まだ見ていない', '迷いが一つに絞れたら、それを空欄にして聞き直す', '決めるのは、もう一度試作を触ってからでよい'],
       '次に試すこと': [`「${q}」を、いちばん短い操作で確かめる形にする`, '試した結果を、前提のこの一節に書き戻す', '30分で終わらなければ、範囲を半分にする'],
+      '抜けている遷移': ['「失敗」から「空欄待ち」へ戻る道がない', '「続き」の途中で止めたときの行き先が描かれていない', '選び直しが何度でも回れるかを、矢印で確かめたい'],
+      '名前': ['「書き出し」と「続き」は、画面の言葉とそろっている', '「空欄待ち」は人を待っていると分かる名前にしたい', '「完了」は選び直しで戻れるので、「ひと区切り」でもよい'],
+      '分け方': ['AI が書いている状態と、人を待つ状態を色で分けたい', '失敗とやり直しは、主な流れの外に寄せると読みやすい', '一つの図に収まらなければ、空欄の扱いだけ別の図にする'],
+      '回る順番': ['午前に屋外、午後に屋内の順にすると、疲れた時間に座れる', '最後の場所を駅の近くにすると、帰りの移動が短い', '番号の順に歩くと、同じ道を戻らずに済む'],
+      '移動の負担': ['点線の長い区間は、バスより地下鉄が早い', '子どもが歩くのは一日に4km までに抑える', '坂の多い区間は、行きでなく帰りに下る向きにする'],
+      '休憩の場所': ['2か所目と3か所目のあいだに、座れる茶店を挟む', '昼は混む前の11時に入り、午後の休憩を短くする', '雨のときは、屋内の場所を休憩にあてる'],
+      '色': ['差し色が二つあるので、一つに絞ると視線が迷わない', '背景と文字の明るさの差を、もう一段広げる'],
+      '余白': ['上と左の余白がそろっていない', '見出しの下を、本文の行間の倍に広げる'],
+      '文字の大きさ': ['見出しと本文の差が小さく、どこから読むか迷う', '本文は一段下げ、見出しは一段上げる'],
     }
+    const notesFor = a => QUOTE_NOTES[text]?.[a] || GENERAL[a] || [`「${short(text, 12)}」を${a}の点で、ほかの候補と並べる`, '似たものとの違いを一言で言えるかを確かめる', '迷う点があれば、そこを空欄にしてもう一度聞く']
+    const named = angle.options.find(o => question.includes(o) || question.includes(o.slice(0, 2)))
+    if (named) return { blanks: {}, draft: () => [`${subject}を、${named}の点から見ます。`, `## ${named}`, ...notesFor(named).map(s => '- ' + s)].join('\n') }
     return {
       blanks: { angle },
-      draft: () => `「${short(quote, 24)}」について、もう少し掘り下げます。まず[[angle]]から見ます。`,
-      more: v => {
-        const notes = QUOTE_NOTES[quote]?.[v.angle] || GENERAL[v.angle] || [`「${short(quote, 12)}」を${v.angle}の点で、ほかの候補と並べる`, '似たものとの違いを一言で言えるかを確かめる', '迷う点があれば、そこを空欄にしてもう一度聞く']
-        return ['## [[angle]]', ...notes.map(s => '- ' + s)].join('\n')
-      },
+      draft: () => `${subject}について答えます。まず[[angle]]から見ます。`,
+      more: v => ['## [[angle]]', ...notesFor(v.angle).map(s => '- ' + s)].join('\n'),
     }
   },
   followUp: text => /道具|響き/.test(text) ? {
@@ -522,19 +537,20 @@ const SCRIPTS = {
       '- 中央の入力欄から始め、送った発言がそのままブロックになる形を試している',
       '- 返事はブロックの中で流れ、決めるべきところは空欄のまま止まる',
       '## 決めたこと',
-      '- 一節を選んで聞くと、AI が先に話すブロックが線でつながる',
-      '- 図と画像は本文に描かず、隣のブロックに出す',
+      '- 一節や図を選んで問いを書くと、その問いから始まるブロックが線でつながる',
+      '- 図と画像は本文の中に描き、押せばそれについて聞ける',
       '- 補足のラベルや説明は足さず、配置で関係を伝える',
+      '- 一度置いたブロックは、人がドラッグしない限り動かさない',
       '## まだ決めていないこと',
-      '- 手で動かしたブロックと自動の配置をどう両立させるか',
+      '- 重なったブロックを、どこまで読みやすく保つか',
       '- 壊れた Mermaid を AI に何回まで直させるか',
     ].join('\n'),
   }),
 }
-function pickScript({ thread, aiFirst, text, quote, images, premise }) {
+function pickScript({ thread, text, images, premise }) {
   if (premise) return SCRIPTS.premise(premise)
-  if (aiFirst) return SCRIPTS.aboutQuote(quote, threadOf(thread.origin.threadId)?.kind)
   const asked = thread.messages.filter(m => m.role === 'user').length
+  if (thread.origin && asked === 1) return SCRIPTS.aboutQuote(thread.origin.quote, threadOf(thread.origin.threadId)?.kind, text)
   if (asked > 1 || thread.origin) return /フロー|流れ図/.test(text) ? SCRIPTS.brokenFlow() : SCRIPTS.followUp(text)
   if (/京都|旅行/.test(text)) return SCRIPTS.travel()
   if (/状態図|流れ/.test(text)) return SCRIPTS.flow()
@@ -582,7 +598,8 @@ function mdToTokens(md, blankKeys = new Set()) {
    本番では reply を server.mjs の /draft と /continue に、analyze を Kuromoji + /judge + /inventory に、
    repairDiagram を「ソースとエラーを渡して直したコードブロックだけを返させる」呼び出しに差し替える。
    前提は reply に ctx.premise (スキルの引数) を渡して作る。本番では呼び出し元の会話から作る。
-   まとめ (/summary) は state.threads と state.sides をそのまま読めばよい */
+   追い質問の ctx.quote は Quote。サーバーへは quoteText で文字にして渡す (図は Mermaid のソース、画像は代わりの文)。
+   まとめ (/summary) は state.threads をそのまま読めばよい */
 async function scriptedReply(ctx) {
   await sleep(1500 + Math.random() * 900)
   const s = pickScript(ctx)
@@ -601,7 +618,9 @@ async function post(path, body, signal) {
   return data
 }
 const blocksToMd = blocks => blocks.map(b => ({ heading: '## ', item: '- ', quote: '> ' }[b.kind] || '') + b.text).join('\n')
-async function remoteReply({ text, quote, assumptions }) {
+const quoteText = q => !q ? null : q.kind === 'text' ? q.text : q.kind === 'diagram' ? '```mermaid\n' + q.source + '\n```' : `[画像] ${q.alt || ''}`
+async function remoteReply({ text, quote: q, assumptions }) {
+  const quote = quoteText(q)
   const d = await post('/draft', { text, assumptions, quote })
   const blanks = Object.fromEntries(d.blanks.map(b => [b.key, { label: b.label, q: b.question, type: 'chips', options: b.options, multi: b.multiple }]))
   const keys = new Set(Object.keys(blanks))
@@ -667,14 +686,21 @@ function centerOn(r, pad = 48) {
   const z = Math.max(0.35, Math.min(view.z, (innerWidth - 2 * pad) / r.w, (innerHeight - 2 * pad) / r.h))
   animateView({ x: innerWidth / 2 - (r.x + r.w / 2) * z, y: innerHeight / 2 - (r.y + r.h / 2) * z, z }, 460)
 }
-// 人が始めた操作 (追い質問、図への移動) でだけ呼ぶ。返事が届いたことでは画面を動かさない
-function reveal(r, pad = 48) {
-  const sx = r.x * view.z + view.x, sy = r.y * view.z + view.y, sw = r.w * view.z, sh = Math.min(r.h * view.z, innerHeight - 2 * pad)
+// 人が送った追い質問の頭 (引用、問い、考えている行) が画面の外にかかったときだけ呼ぶ。ブロックは動かさず、視点を最小限ずらす。
+// 元の一節や図 (keep、画面座標) は画面から追い出さない。返事が届いたことやブロックが伸びたことでは、視点は動かさない
+const PAD = 32
+const screenRect = () => ({ x: (PAD - view.x) / view.z, y: (PAD - view.y) / view.z, w: (innerWidth - 2 * PAD) / view.z, h: (innerHeight - 2 * PAD) / view.z })
+function reveal(r, keep) {
+  const sx = r.x * view.z + view.x, sy = r.y * view.z + view.y, sw = r.w * view.z, sh = Math.min(r.h * view.z, innerHeight - 2 * PAD)
   let dx = 0, dy = 0
-  if (sx + sw > innerWidth - pad) dx = innerWidth - pad - (sx + sw)
-  if (sx + dx < pad) dx = pad - sx
-  if (sy + sh > innerHeight - pad) dy = innerHeight - pad - (sy + sh)
-  if (sy + dy < pad) dy = pad - sy
+  if (sx + sw > innerWidth - PAD) dx = innerWidth - PAD - (sx + sw)
+  if (sx + dx < PAD) dx = PAD - sx
+  if (sy + sh > innerHeight - PAD) dy = innerHeight - PAD - (sy + sh)
+  if (sy + dy < PAD) dy = PAD - sy
+  if (keep) {
+    dx = Math.min(Math.max(dx, Math.min(0, PAD - keep.left)), Math.max(0, innerWidth - PAD - keep.right))
+    dy = Math.min(Math.max(dy, Math.min(0, PAD - keep.top)), Math.max(0, innerHeight - PAD - keep.bottom))
+  }
   if (dx || dy) animateView({ x: view.x + dx, y: view.y + dy, z: view.z })
 }
 zoomBtn.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 1 / view.z)
@@ -712,117 +738,90 @@ window.addEventListener('dragover', e => e.preventDefault())
 window.addEventListener('drop', e => e.preventDefault())
 
 /* ============ 配置 ============
-   毎回すべての位置を決め直す。入力は根の置きたい位置、ドラッグで置いた位置、測った大きさと線の起点の高さだけで、
-   押し下げた位置はどこにも書き戻さない。
-   木の配置: ブロックの右に一本の列を作り、追い質問と図・画像を、元の一節の高さの順に並べる。
-   列の中では、上の項目の部分木 (その先の列も含む外形) の下端より上には置かない。
-   こうすると線はすべて「元の右端と列の左端の間の溝」の中に収まり、並び順が起点の順と同じなので交わらない。
-   図だけ別の列に分けると、その列を追い質問への線が横切るので分けない。
-   ドラッグしたものは固定になり、それを根にした部分木ごと先に置く。自動の項目はそれを避けて下へ流れる */
-const GAP = 24, COL_GAP = 72, THREAD_ENTRY = 26, SIDE_ENTRY = 18
-let placed = new Map(), layoutQueued = false
-const ro = new ResizeObserver(() => scheduleLayout())
-function scheduleLayout() { if (!layoutQueued) { layoutQueued = true; requestAnimationFrame(layout) } }
-function setPos(el, r) { el.style.left = r.x + 'px'; el.style.top = r.y + 'px' }
+   置く場所は、ブロックを作るときに一度だけ決める。以後その位置を変えるのは人のドラッグだけ。
+   ブロックが伸びても、ほかのブロックは押さない。重なってよく、触ったブロックが前に出る。
+   追い質問は、元の一節の高さで元の右の列を第一候補にし、空いていて画面に見えている近くの場所を選ぶ。
+   候補の良し悪しは、理想の位置からの距離に、画面からはみ出す量、線がほかのブロックの下をくぐるか、
+   同じ元から出た線と交わるかを足して比べる。
+   空き地の判定には伸びる余地も入れる。書いている途中のブロックは ROOM の高さまで伸びるとみる。
+   根の会話はこの先も下へ伸び続けるので、その列の下には置かない */
+const GAP = 24, COL_GAP = 72, ROOM = 360, ENTRY = 26, REACH = 720
+const ro = new ResizeObserver(() => scheduleLinks())
+let linksQueued = false
+function scheduleLinks() { if (!linksQueued) { linksQueued = true; requestAnimationFrame(() => { linksQueued = false; drawLinks() }) } }
+function setPos(t) { const el = ui.get(t.id).el; el.style.left = t.pos.x + 'px'; el.style.top = t.pos.y + 'px' }
+const rectOf = t => { const el = ui.get(t.id).el; return { x: t.pos.x, y: t.pos.y, w: el.offsetWidth, h: el.offsetHeight } }
+const overlaps = (a, b, m = 0) => a.x < b.x + b.w + m && a.x + a.w + m > b.x && a.y < b.y + b.h + m && a.y + a.h + m > b.y
 const midOf = (rect, block) => (rect.top + rect.height / 2 - block.getBoundingClientRect().top) / view.z
+const growing = t => { const m = t.messages.at(-1); return m?.role === 'ai' && m.phase !== 'done' && m.phase !== 'failed' }
+const hiddenPx = (r, v) => Math.max(0, v.x - r.x) + Math.max(0, r.x + r.w - v.x - v.w) + Math.max(0, v.y - r.y) + Math.max(0, r.y + r.h - v.y - v.h)
 
-// 線の起点の高さ (元のブロックの上端から)。続きを書き直す間は一節やチップが消えるので、最後に測った高さに留める
-function quoteAnchor(t) {
-  const block = ui.get(t.origin.threadId)?.el, first = quoteRange(t)?.getClientRects()[0]
-  if (block && first) t.anchor = midOf(first, block)
-  return t.anchor ?? THREAD_ENTRY
+// 線の起点の高さ (元のブロックの上端から)。続きを書き直す間は一節や図が消えるので、最後に測った高さに留める
+function anchorRect(t) {
+  const q = t.origin.quote
+  return q.kind === 'text' ? quoteRange(t)?.getClientRects()[0] : mediaEl(q.key)?.getBoundingClientRect()
 }
-function sideAnchor(s) {
-  const block = ui.get(s.from.threadId)?.el
-  const chip = block?.querySelector(`.sidechip[data-side="${s.id}"]`)
-  if (chip) return (s.anchor = midOf(chip.getBoundingClientRect(), block))
-  if (s.anchor != null) return s.anchor
-  const m = ui.get(s.from.threadId)?.msgEls[s.from.msgIndex]
-  return m ? midOf(m.getBoundingClientRect(), block) : SIDE_ENTRY
+function anchorOf(t) {
+  const block = ui.get(t.origin.threadId)?.el, rect = anchorRect(t)
+  if (block && rect) t.anchor = midOf(rect, block)
+  return t.anchor ?? ENTRY
 }
-function measure() {
-  const nodes = new Map()
-  for (const t of state.threads) {
-    const el = ui.get(t.id).el
-    nodes.set(t.id, { id: t.id, n: t.n, w: el.offsetWidth, h: el.offsetHeight, parent: t.origin?.threadId ?? t.beside, anchor: t.origin ? quoteAnchor(t) : 0, entry: t.origin ? THREAD_ENTRY : 0, pinned: t.pinned, home: { x: t.x, y: t.y } })
+// 作った直後に見えていてほしい部分 (引用、問い、考えている行) の高さ。入力欄はその下にあり、すぐには要らない
+function headOf(t) {
+  const u = ui.get(t.id)
+  return u.comp ? (u.comp.el.getBoundingClientRect().top - u.el.getBoundingClientRect().top) / view.z : u.el.offsetHeight
+}
+// 線の行き先の高さ (追い質問の上端から)。引用の行の中ほど
+function entryOf(t) {
+  const u = ui.get(t.id)
+  return u.quoteEl ? midOf(u.quoteEl.getBoundingClientRect(), u.el) : ENTRY
+}
+// 元から行き先までの線が通る帯。ほかのブロックの下をくぐる場所は、なるべく選ばない
+function linkBand(S, y1, r, y2) {
+  const right = r.x >= S.x + S.w / 2
+  const x1 = right ? S.x + S.w : r.x + r.w, x2 = right ? r.x : S.x
+  return { x: Math.min(x1, x2), y: Math.min(y1, y2) - 2, w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) + 4 }
+}
+function place(t) {
+  const src = threadOf(t.origin.threadId), S = rectOf(src), el = ui.get(t.id).el
+  const w = el.offsetWidth, h = el.offsetHeight, head = headOf(t), entry = entryOf(t), y1 = S.y + anchorOf(t)
+  const ideal = { x: S.x + S.w + COL_GAP, y: Math.round(y1 - entry) }
+  const others = state.threads.filter(o => o !== t && o.pos && ui.has(o.id)).map(o => {
+    const r = rectOf(o)
+    const reach = o.kind === 'chat' && !o.origin ? 1e6 : growing(o) ? Math.max(r.h, ROOM) : r.h
+    return { t: o, r, keep: { ...r, h: reach } }
+  })
+  // 同じ元から出ている線。起点の順と行き先の順が逆になる場所は、線が交わるので避ける
+  const sibs = others.filter(o => o.t.origin?.threadId === src.id).map(o => ({ a: S.y + anchorOf(o.t), b: o.r.y + entryOf(o.t) }))
+  const v = screenRect()
+  let best = null
+  for (const x of [ideal.x, ideal.x + w + COL_GAP, S.x - COL_GAP - w]) {
+    for (let dy = -720; dy <= 1600; dy += 8) {
+      const y = ideal.y + dy
+      if (others.some(o => overlaps({ x, y, w, h: Math.max(h, ROOM) }, o.keep, GAP))) continue
+      const under = others.some(o => o.t !== src && overlaps(linkBand(S, y1, { x, y, w, h }, y + entry), o.r))
+      const crosses = sibs.some(s => (y1 - s.a) * (y + entry - s.b) < 0)
+      const dist = Math.hypot(x - ideal.x, dy), hidden = hiddenPx({ x, y, w, h: head }, v)
+      // 視点を動かさずに見える場所が届く範囲にあれば、それを必ず選ぶ。線の交わりやくぐりは、その中での順位にだけ効く
+      const rank = !hidden && dist <= REACH ? 0 : 1
+      const cost = dist + (under ? 240 : 0) + (crosses ? 400 : 0) + 3 * hidden
+      if (!best || rank < best.rank || (rank === best.rank && cost < best.cost)) best = { x, y, rank, cost }
+    }
   }
-  for (const s of state.sides) {
-    const el = ui.get(s.id).el
-    nodes.set(s.id, { id: s.id, n: s.n, w: el.offsetWidth, h: el.offsetHeight, parent: s.from.threadId, anchor: sideAnchor(s), entry: SIDE_ENTRY, pinned: s.pinned })
-  }
-  return nodes
+  t.pos = best ? { x: best.x, y: best.y } : ideal
+  setPos(t)
 }
-const hits = (a, b, m = GAP) => a.x < b.x + b.w + m && a.x + a.w + m > b.x && a.y < b.y + b.h + m && a.y + a.h + m > b.y
 
-// nodes → Map(id → { x, y, w, h })。DOM に触らない
-function computeLayout(nodes) {
-  const kids = new Map()
-  const isRoot = nd => nd.pinned || !nd.parent || !nodes.has(nd.parent)
-  for (const nd of nodes.values()) if (!isRoot(nd)) kids.set(nd.parent, [...(kids.get(nd.parent) || []), nd])
-  for (const list of kids.values()) list.sort((a, b) => a.anchor - b.anchor || a.n - b.n)
-  const memo = new Map()
-  // 部分木の外形。原点はそのブロックの左上
-  function extent(id) {
-    if (memo.has(id)) return memo.get(id)
-    const nd = nodes.get(id)
-    let top = 0, bottom = nd.h, right = nd.w, cursor = -Infinity
-    for (const k of kids.get(id) || []) {
-      const e = extent(k.id), y = Math.max(k.anchor - k.entry, cursor - e.top)
-      top = Math.min(top, y + e.top); bottom = Math.max(bottom, y + e.bottom); right = Math.max(right, nd.w + COL_GAP + e.right)
-      cursor = y + e.bottom + GAP
-    }
-    const r = { top, bottom, right }
-    memo.set(id, r)
-    return r
-  }
-  function placeTree(id, x, y, out, obstacles) {
-    const nd = nodes.get(id)
-    out.boxes.push({ id, x, y, w: nd.w, h: nd.h })
-    let top = y, bottom = y + nd.h, cursor = -Infinity
-    const colX = x + nd.w + COL_GAP, ends = []
-    for (const k of kids.get(id) || []) {
-      const e = extent(k.id)
-      let ky = Math.max(y + k.anchor - k.entry, cursor - e.top)
-      for (let guard = 0, o; guard < 50 && (o = obstacles.find(o => hits({ x: colX, y: ky + e.top, w: e.right, h: e.bottom - e.top }, o))); guard++) ky = o.y + o.h + GAP - e.top
-      const r = placeTree(k.id, colX, ky, out, obstacles)
-      top = Math.min(top, r.top); bottom = Math.max(bottom, r.bottom)
-      cursor = r.bottom + GAP
-      ends.push(y + k.anchor, ky + k.entry)
-    }
-    // 線が通る溝。ほかの木のブロックがここに入らないようにする
-    if (ends.length) out.gaps.push({ x: x + nd.w, y: Math.min(...ends), w: COL_GAP, h: Math.max(...ends) - Math.min(...ends) })
-    return { top, bottom }
-  }
-  const roots = [...nodes.values()].filter(isRoot)
-  const pinned = roots.filter(nd => nd.pinned).sort((a, b) => a.n - b.n)
-  const free = roots.filter(nd => !nd.pinned).sort((a, b) => a.home.y - b.home.y || a.n - b.n)
-  // 固定したブロックは、どの順で置いても最初から障害物にする
-  const fixed = pinned.map(nd => ({ id: nd.id, x: nd.pinned.x, y: nd.pinned.y, w: nd.w, h: nd.h }))
-  const done = { boxes: [], gaps: [] }
-  for (const nd of pinned) placeTree(nd.id, nd.pinned.x, nd.pinned.y, done, [...fixed.filter(b => b.id !== nd.id), ...done.boxes.filter(b => !fixed.some(f => f.id === b.id))])
-  for (const nd of free) {
-    let y = nd.home.y
-    for (let guard = 0; guard < 60; guard++) {
-      const trial = { boxes: [], gaps: [] }
-      placeTree(nd.id, nd.home.x, y, trial, done.boxes)
-      let push = 0
-      for (const a of [...trial.boxes, ...trial.gaps]) for (const b of [...done.boxes, ...done.gaps]) if (hits(a, b, a.id && b.id ? GAP : 4)) push = Math.max(push, b.y + b.h + GAP - a.y)
-      if (!push) { done.boxes.push(...trial.boxes); done.gaps.push(...trial.gaps); break }
-      y += push
-    }
-  }
-  return new Map(done.boxes.map(b => [b.id, b]))
-}
-function layout() {
-  layoutQueued = false
-  placed = computeLayout(measure())
-  for (const [id, r] of placed) setPos(ui.get(id).el, r)
-  drawLinks()
-}
-const layoutNow = layout
+/* ============ 重なり ============
+   重なったときは、最後に触ったブロック (押した、入力欄に入った、作った) が前に出る。
+   返事が流れているだけでは前に出さない。読んでいるブロックの上に、伸びてきたブロックがかぶさらないように */
+let zTop = 0
+function raise(el) { if (!el.style.zIndex || +el.style.zIndex < zTop) el.style.zIndex = ++zTop }
+world.addEventListener('pointerdown', e => { const b = e.target.closest('.block'); if (b) raise(b) }, true)
+world.addEventListener('focusin', e => { const b = e.target.closest('.block'); if (b) raise(b) })
 
 /* ============ 線 ============
-   元の右端の、一節 (図ならチップ) の高さから、行き先の左端へ。行き先を左へ動かしたときは逆向きに引く */
+   元の右端の、一節や図の高さから、行き先の引用の行へ。行き先を左へ動かしたときは逆向きに引く。線はブロックの下に描く */
 const busy = phase => phase === 'thinking' || phase === 'drafting' || phase === 'continuing'
 function curve(S, y1, U, y2) {
   const rightward = U.x >= S.x + S.w / 2
@@ -831,37 +830,33 @@ function curve(S, y1, U, y2) {
   return { x1, d: `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}` }
 }
 function quoteRange(t) {
-  const src = threadOf(t.origin.threadId), m = src && ui.get(src.id)?.msgEls[t.origin.msgIndex]
-  return m ? findQuoteRange(m, t.origin.quote) : null
+  const q = t.origin.quote, m = q.kind === 'text' && ui.get(t.origin.threadId)?.msgEls[t.origin.msgIndex]
+  return m ? findQuoteRange(m, q.text) : null
 }
 function drawLinks() {
   let svg = ''
-  const quoted = []
+  const quoted = [], media = new Set()
   for (const t of state.threads) {
-    if (!t.origin) continue
-    const S = placed.get(t.origin.threadId), U = placed.get(t.id)
-    if (!S || !U) continue
+    const src = t.origin && threadOf(t.origin.threadId)
+    if (!src?.pos || !t.pos || !ui.has(t.id) || !ui.has(src.id)) continue
+    const S = rectOf(src), U = rectOf(t)
     const range = quoteRange(t)
     if (range) quoted.push(range)
+    if (t.origin.quote.key) media.add(t.origin.quote.key)
     const live = busy(t.messages.at(-1)?.phase) ? ' class="live"' : ''
-    const y1 = S.y + (t.anchor ?? THREAD_ENTRY), c = curve(S, y1, U, U.y + THREAD_ENTRY)
-    svg += `<path${live} data-from="${S.id}" data-to="${U.id}" d="${c.d}"/><circle${live} cx="${c.x1}" cy="${y1}" r="2.5"/>`
-  }
-  for (const s of state.sides) {
-    const A = placed.get(s.from.threadId), B = placed.get(s.id)
-    if (!A || !B) continue
-    const live = s.status === 'streaming' || s.status === 'repairing' ? ' class="live"' : ''
-    svg += `<path${live} data-from="${A.id}" data-to="${B.id}" d="${curve(A, A.y + (s.anchor ?? SIDE_ENTRY), B, B.y + SIDE_ENTRY).d}"/>`
+    const y1 = S.y + anchorOf(t), c = curve(S, y1, U, U.y + entryOf(t))
+    svg += `<path${live} data-from="${src.id}" data-to="${t.id}" d="${c.d}"/><circle${live} cx="${c.x1}" cy="${y1}" r="2.5"/>`
   }
   linksSvg.innerHTML = svg
   if (window.CSS?.highlights) CSS.highlights.set('quoted', new Highlight(...quoted))
+  for (const el of world.querySelectorAll('.media')) el.classList.toggle('quoted', media.has(el.dataset.key))
 }
 // 選んだ一節を、元の発言の中から探し直す。続きを書き直すと DOM が作り直されるので、範囲は持ち歩かない。
-// 選択の文字列は段落の間に改行が入るので、空白を除いて比べる
+// 選択の文字列は段落の間に改行が入るので、空白を除いて比べる。図のラベルやソースは本文として数えない
 function findQuoteRange(msgEl, quote) {
   const want = quote.replace(/\s+/g, '')
   if (!want) return null
-  const walker = document.createTreeWalker(msgEl, NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentElement.closest('.text') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT })
+  const walker = document.createTreeWalker(msgEl, NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentElement.closest('.text') && !n.parentElement.closest('.media') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT })
   let s = ''; const map = []
   for (let n; (n = walker.nextNode());) for (let k = 0; k < n.data.length; k++) if (!/\s/.test(n.data[k])) { s += n.data[k]; map.push([n, k]) }
   const at = s.indexOf(want)
@@ -899,7 +894,7 @@ pop.addEventListener('pointerdown', e => { if (!e.target.closest('input')) e.pre
 document.addEventListener('pointerdown', e => {
   dismissed = false
   if (!pop.hidden && !pop.contains(e.target) && !popCtx?.anchor.contains?.(e.target)) { dismissed = true; closePop() }
-  if (!pill.hidden && !pill.contains(e.target)) { dismissed = true; hidePill() }
+  if (!pill.hidden && !pill.contains(e.target) && !pick?.fig?.contains(e.target)) { dismissed = true; hidePill() }
 }, true)
 function otherRow(onSubmit) {
   const wrap = h('div')
@@ -1057,30 +1052,38 @@ function takeMessage(c) {
   const assumptions = u.matches.flatMap(m => m.entry.sections.map(s => ({ icon: m.entry.icon, sec: s })))
     .filter(({ sec }) => c.decisions[sec.key] !== undefined)
     .map(({ icon, sec }) => ({ icon, say: sec.say, value: fmt(sec, c.decisions[sec.key]) }))
-  const msg = { role: 'user', parts: c.text.trim() ? [{ text: c.text.trim() }] : [], decisions: { ...c.decisions }, assumptions }
-  const atts = c.attachments
+  const msg = { role: 'user', parts: c.text.trim() ? [{ text: c.text.trim() }] : [], images: c.attachments.map(a => ({ src: a.src })), decisions: { ...c.decisions }, assumptions }
   Object.assign(c, newComposer())
   u.ta.value = ''; u.matches = []
   renderMirror(c); renderAtts(c)
-  return { msg, atts }
+  return msg
 }
 
 /* ============ ブロック ============ */
+// 追い質問の上の引用。一節なら文、画像と図なら聞いた時点の縮小
+function quoteLine(q) {
+  if (q.kind === 'text') return h('div', { class: 'quoteline' }, q.text)
+  const line = h('div', { class: 'quoteline thumb' })
+  if (q.kind === 'image') line.append(h('img', { src: q.src, alt: q.alt || '', draggable: 'false' }))
+  else { line.innerHTML = q.svg; fitSvg(line.firstElementChild, 140, 52) }
+  return line
+}
 function mountThread(t, { draft = false } = {}) {
   const msgs = h('div', { class: 'msgs' })
-  const comp = t.composer && mountComposer(t.composer, { variant: draft && t.beside ? 'hero' : 'compact', placeholder: draft ? '何を考えますか？' : '返信', onSend: () => sendInThread(t) })
-  const el = h('article', { class: 'block' + (t.kind === 'premise' ? ' premise' : '') + (draft ? ' draft' : '') + (t.beside ? ' lead' : ''), 'data-thread': t.id },
-    t.origin ? h('div', { class: 'quoteline' }, t.origin.quote) : null, msgs, comp?.el)
+  const comp = t.composer && mountComposer(t.composer, { variant: draft && t.lead ? 'hero' : 'compact', placeholder: draft ? '何を考えますか？' : '返信', onSend: () => sendInThread(t) })
+  const quoteEl = t.origin ? quoteLine(t.origin.quote) : null
+  const el = h('article', { class: 'block' + (t.kind === 'premise' ? ' premise' : '') + (draft ? ' draft' : '') + (t.lead ? ' lead' : ''), 'data-thread': t.id }, quoteEl, msgs, comp?.el)
   world.append(el); ro.observe(el)
-  ui.set(t.id, { el, msgs, msgEls: [], comp })
+  ui.set(t.id, { el, msgs, msgEls: [], comp, quoteEl })
+  if (t.pos) setPos(t)
+  raise(el)
   // 前提の隣の入力欄は、空のまま離れても残す
-  if (draft && !t.beside) {
+  if (draft && !t.lead) {
     // 何も書かずに離れた入力欄は消す
     el.addEventListener('focusout', () => setTimeout(() => {
       if (!t.messages.length && !t.composer.text.trim() && !t.composer.attachments.length && !el.contains(document.activeElement) && popCtx === null) removeThread(t)
     }, 150))
   }
-  scheduleLayout()
   return ui.get(t.id)
 }
 function removeThread(t) {
@@ -1088,18 +1091,20 @@ function removeThread(t) {
   if (!u) return
   ro.unobserve(u.el); u.el.remove(); ui.delete(t.id)
   state.threads = state.threads.filter(x => x !== t)
-  scheduleLayout()
+  scheduleLinks()
 }
+// 押した場所が、そのまま入力欄の置き場所になる
 function createDraftAt(sx, sy) {
   const p = toWorld(sx, sy)
-  const t = newThread({ x: Math.round(p.x - 20), y: Math.round(p.y - 22) })
+  const t = newThread({ pos: { x: Math.round(p.x - 20), y: Math.round(p.y - 22) } })
   const u = mountThread(t, { draft: true })
-  layoutNow()
   u.comp.ta.focus({ preventScroll: true })
 }
 function mountUserMsg(t, i) {
   const m = t.messages[i], u = ui.get(t.id)
-  const el = h('div', { class: 'msg user' }, m.parts.length ? h('div', { class: 'bubble' }, m.parts.map(p => p.text).join('')) : null, h('div', { class: 'chips', hidden: true }))
+  const el = h('div', { class: 'msg user' },
+    m.images.map((img, k) => h('figure', { class: 'media image ready', 'data-key': mediaKey(t, i, k) }, h('img', { src: img.src, alt: '', draggable: 'false' }))),
+    m.parts.length ? h('div', { class: 'bubble' }, m.parts.map(p => p.text).join('')) : null)
   u.msgs.append(el); u.msgEls[i] = el
 }
 function mountAiMsg(t, i) {
@@ -1113,16 +1118,13 @@ const msgEl = (t, i) => ui.get(t.id).msgEls[i]
 function sendInThread(t) {
   const u = ui.get(t.id)
   const before = u.comp.el.getBoundingClientRect()
-  const { msg, atts } = takeMessage(t.composer)
-  t.messages.push(msg)
+  t.messages.push(takeMessage(t.composer))
   const i = t.messages.length - 1
   if (u.el.classList.contains('draft')) { u.el.classList.remove('draft'); u.comp.ta.placeholder = '返信'; u.comp.el.classList.replace('hero', 'compact') }
   mountUserMsg(t, i)
-  atts.forEach((a, k) => addUserImage(t, i, a, k))
   // 入力欄はブロックの下へ移る。飛ばずに滑らせる
   const after = u.comp.el.getBoundingClientRect()
   if (Math.abs(after.top - before.top) > 2) u.comp.el.animate([{ transform: `translate(${(before.left - after.left) / view.z}px,${(before.top - after.top) / view.z}px)` }, { transform: 'none' }], { duration: T(280), easing: 'cubic-bezier(.2,.8,.2,1)' })
-  layoutNow()
   startReply(t)
 }
 
@@ -1140,7 +1142,7 @@ function setPhase(t, i, phase) {
     st.classList.add('needs')
     st.textContent = total > 1 && left === total ? `${left}つの空欄を埋めたら続けます` : left === 1 ? 'あと1つ埋めたら続けます' : `あと${left}つ埋めたら続けます`
   } else st.replaceChildren()
-  scheduleLayout()
+  scheduleLinks()
 }
 function announce(t) {
   const el = ui.get(t.id).el
@@ -1154,18 +1156,18 @@ function fail(t, i, e, retry) {
   const again = h('button', { class: 'retry', type: 'button' }, 'もう一度')
   again.onclick = retry
   st.replaceChildren(h('span', {}, e.message), again)
-  scheduleLayout()
+  scheduleLinks()
 }
-async function startReply(t, { aiFirst = false, premise = null } = {}) {
-  const user = aiFirst || premise ? null : t.messages.at(-1)
+async function startReply(t, { premise = null } = {}) {
+  const user = premise ? null : t.messages.at(-1)
   const m = { role: 'ai', phase: 'thinking', blanks: {}, filled: {}, parts: [], more: [], decisions: user?.decisions ?? {}, assumptions: user?.assumptions ?? [] }
   t.messages.push(m)
   const i = t.messages.length - 1
   const r = { plan: null, gen: 0, abort: null, timer: null, drafted: false }
   replies.set(m, r)
   mountAiMsg(t, i); setPhase(t, i, 'thinking')
-  const ctx = { thread: t, msgIndex: i, aiFirst, premise, text: user?.parts.map(p => p.text).join('') ?? '', quote: t.origin?.quote ?? null, images: user ? state.sides.filter(s => s.from.threadId === t.id && s.from.msgIndex === i - 1).length : 0, assumptions: m.assumptions.map(a => a.say[0] + a.value + a.say[1]) }
-  try { r.plan = await adapter.reply(ctx) } catch (e) { fail(t, i, e, () => { t.messages.splice(i, 1); msgEl(t, i).remove(); startReply(t, { aiFirst, premise }) }); return }
+  const ctx = { thread: t, msgIndex: i, premise, text: user?.parts.map(p => p.text).join('') ?? '', quote: t.origin?.quote ?? null, images: user?.images.length ?? 0, assumptions: m.assumptions.map(a => a.say[0] + a.value + a.say[1]) }
+  try { r.plan = await adapter.reply(ctx) } catch (e) { fail(t, i, e, () => { t.messages.splice(i, 1); msgEl(t, i).remove(); startReply(t, { premise }) }); return }
   m.blanks = r.plan.blanks
   setPhase(t, i, 'drafting'); announce(t)
   m.parts = r.plan.draft(values(m))
@@ -1179,11 +1181,10 @@ function afterDraft(t, i) {
   else if (r.plan.more) continueReply(t, i)
   else setPhase(t, i, 'done')
 }
-// 選び直しの連打を待つ間にも、走っている続きは止める。前の続きの図は薄くして残し、描き直したら差し替える
+// 選び直しの連打を待つ間にも、走っている続きは止める
 function continueReply(t, i) {
   const m = t.messages[i], r = replies.get(m)
   clearTimeout(r.timer); r.gen++; r.abort?.abort()
-  for (const s of sidesOf(t.id, i)) if (s.ord >= draftSideCount(m)) { s.stale = true; renderSide(s) }
   setPhase(t, i, 'continuing')
   r.timer = setTimeout(() => writeMore(t, i), T(650))
 }
@@ -1195,9 +1196,8 @@ async function writeMore(t, i) {
   try { tokens = await r.plan.more(values(m), ac.signal) } catch (e) { if (g === r.gen && e.name !== 'AbortError') fail(t, i, e, () => continueReply(t, i)); return }
   if (g !== r.gen) return
   m.more = tokens
-  const produced = await stream(t, i, 'more', tokens, g)
+  await stream(t, i, 'more', tokens, g)
   if (g !== r.gen) return
-  for (const s of sidesOf(t.id, i)) if (s.ord >= draftSideCount(m) && !produced.includes(s.ord)) removeSide(s)
   setPhase(t, i, 'done')
 }
 function fillBlank(t, i, key, v) {
@@ -1209,26 +1209,25 @@ function fillBlank(t, i, key, v) {
   else if (r.plan.more) continueReply(t, i)
 }
 
-const isSideToken = tok => tok.fence === 'mermaid' || tok.image
-const draftSideCount = m => m.parts.filter(isSideToken).length
+// 画像と図は、発言の中で何番目かを key に持つ。続きの番号は書き出しの続きから数えるので、書き直しても同じ key になる
+const isMedia = tok => tok.image || tok.fence === 'mermaid'
 async function stream(t, i, where, tokens, g) {
   const m = t.messages[i], r = replies.get(m)
   const alive = () => r.gen === g
   const box = msgEl(t, i).querySelector(where === 'draft' ? '.text.draft' : '.text.more')
-  let ord = where === 'draft' ? 0 : draftSideCount(m)
-  const produced = []
+  let ord = where === 'draft' ? 0 : m.parts.filter(isMedia).length
   for (const tok of tokens) {
-    if (!alive()) return produced
-    if (isSideToken(tok)) { produced.push(ord); await (tok.image ? streamImage : streamDiagram)(t, i, box, tok, ord++, alive); continue }
-    let el
+    if (!alive()) return
+    if (tok.image) { await streamImage(box, tok, mediaKey(t, i, ord++), alive); continue }
+    if (tok.fence === 'mermaid') { await streamDiagram(box, tok, mediaKey(t, i, ord++), alive); continue }
     if (tok.fence !== undefined) { box.append(h('pre', {}, tok.source)); continue }
+    let el
     if (tok.p) el = h('p'); else if (tok.h) el = h('h3'); else if (tok.ul) el = h('ul'); else if (tok.quote) el = h('blockquote')
     box.append(el)
     if (tok.ul) { for (const li of tok.ul) { const l = h('li'); el.append(l); await typeInline(l, li, t, i, alive) } }
     else await typeInline(el, tok.p || tok.h || tok.quote, t, i, alive)
     await sleep(110)
   }
-  return produced
 }
 async function typeInline(el, parts, t, i, alive) {
   const m = t.messages[i]
@@ -1251,158 +1250,135 @@ function refText(m, key) {
   return v == null ? '' : fmt(m.blanks[key] || SECTION[key], v)
 }
 
-/* ============ 隣のブロック（図と画像） ============ */
-const sidesOf = (threadId, msgIndex) => state.sides.filter(s => s.from.threadId === threadId && s.from.msgIndex === msgIndex)
-function ensureSide(t, i, ord, kind) {
-  const key = `${t.id}:${i}:${ord}`
-  let s = state.sides.find(s => s.key === key)
-  if (s && s.kind !== kind) { removeSide(s); s = null }
-  if (!s) {
-    s = { id: 's' + (++seq), n: seq, key, ord, kind, source: '', from: { threadId: t.id, msgIndex: i }, status: 'streaming', pinned: null }
-    state.sides.push(s)
-    const el = h('aside', { class: 'side ' + kind, 'data-side': s.id })
-    world.append(el); ro.observe(el); ui.set(s.id, { el })
-  }
-  return s
+/* ============ 本文の中の画像と図 ============
+   幅は本文の幅まで。高さは、画像は 360px (CSS)、図は DIAGRAM_MAX_H まで縮める。図は文字が読める大きさを残したいので画像より高く取る。
+   押すと「それについて聞く」入力欄が出るので、拡大は押す操作に載せない。細部はキャンバスのズームで見る */
+const DIAGRAM_MAX_H = 480
+// Pele は 16px の文字で測る。本文の大きさにそろえて 0.86 倍にし、上限に収まるまで縮める
+function fitSvg(svg, maxW, maxH) {
+  const w = +svg?.getAttribute('width'), hh = +svg?.getAttribute('height')
+  if (!w || !hh) return
+  const k = Math.min(0.86, maxW / w, maxH / hh)
+  svg.style.width = Math.round(w * k) + 'px'; svg.style.height = Math.round(hh * k) + 'px'
 }
-function removeSide(s) {
-  const u = ui.get(s.id)
-  if (u) { ro.unobserve(u.el); u.el.remove(); ui.delete(s.id) }
-  state.sides = state.sides.filter(x => x !== s)
-  scheduleLayout()
-}
-function sideChip(s, label) {
-  const b = h('button', { class: 'sidechip', type: 'button', 'data-side': s.id }, icon(s.kind === 'image' ? 'image' : 'workflow', 13), h('span', {}, label))
-  b.onclick = () => {
-    const u = ui.get(s.id), r = placed.get(s.id)
-    if (!u || !r) return
-    reveal(r)
-    u.el.classList.remove('fresh'); void u.el.offsetWidth; u.el.classList.add('fresh')
-  }
-  return b
-}
-function renderChips(s) {
-  for (const b of document.querySelectorAll(`.sidechip[data-side="${s.id}"]`)) {
-    b.classList.toggle('pending', s.status === 'streaming' || s.status === 'repairing')
-    b.classList.toggle('error', s.status === 'error')
-  }
-}
-function renderSide(s) {
-  const u = ui.get(s.id)
-  if (!u) return
-  u.el.classList.toggle('stale', !!s.stale)
-  u.el.classList.toggle('repairing', s.status === 'repairing')
-  if (s.kind === 'image') u.el.replaceChildren(s.status === 'ready' ? h('img', { src: s.source, alt: s.alt || '', draggable: 'false' }) : h('div', { class: 'ph' }))
-  else if (s.status === 'ready') { const d = h('div', { class: 'dia' }); d.innerHTML = s.svg; fitSvg(d.firstElementChild); u.el.replaceChildren(d) }
-  else if (s.status === 'error') u.el.replaceChildren(h('div', { class: 'err' }, icon('alert', 13), h('span', {}, s.error)), h('pre', { class: 'code' }, s.source))
-  else if (!s.svg) u.el.replaceChildren(h('pre', { class: 'src' }, s.pending || ' '))
-  renderChips(s)
-  scheduleLayout()
-}
-// Pele は 16px の文字で測る。本文の大きさにそろえて縮める
-function fitSvg(svg) {
-  if (!svg) return
-  const w = +svg.getAttribute('width')
-  if (w) svg.style.width = Math.round(w * 0.86) + 'px'
-}
-// コードブロックが開いたら隣にブロックを出し、閉じるまではソースを流す。閉じてから一度だけ描く
-async function streamDiagram(t, i, box, tok, ord, alive) {
-  const s = ensureSide(t, i, ord, 'diagram')
-  s.status = 'streaming'; s.pending = ''
-  box.append(h('div', { class: 'chipline' }, sideChip(s, diagramName(tok.source))))
-  renderSide(s)
-  for (const line of tok.source.split('\n')) {
+// コードブロックが開いたらソースを流し、閉じてから一度だけ描く
+async function streamDiagram(box, tok, key, alive) {
+  const src = h('pre', { class: 'src' })
+  const fig = h('figure', { class: 'media diagram', 'data-key': key, role: 'img', 'aria-label': diagramName(tok.source) }, src)
+  box.append(fig)
+  const lines = tok.source.split('\n')
+  for (let k = 0; k < lines.length; k++) {
     if (!alive()) return
-    s.pending += (s.pending ? '\n' : '') + line
-    if (!s.svg) renderSide(s)
+    src.textContent = lines.slice(0, k + 1).join('\n')
     await sleep(60)
   }
-  s.source = s.pending
-  if (!tok.closed) { Object.assign(s, { status: 'error', error: 'コードブロックが閉じていません', svg: null, stale: false }); renderSide(s); return }
+  let svg = null, error = null
   const pele = await pelePromise
   if (!alive()) return
-  const draw = src => pele.render(src, { fontFamily: getComputedStyle(document.body).fontFamily }).svg
-  const failed = e => ({ svg: null, status: 'error', error: '図にできませんでした。' + String(e.message).split('\n')[0], stale: false })
-  if (!pele) Object.assign(s, failed(new Error('Pele を読み込めませんでした')))
-  else try {
-    Object.assign(s, { svg: draw(s.source), status: 'ready', error: null, stale: false })
-  } catch (e) {
+  const draw = s => pele.render(s, { fontFamily: getComputedStyle(document.body).fontFamily }).svg
+  if (!tok.closed) error = new Error('コードブロックが閉じていません')
+  else if (!pele) error = new Error('Pele を読み込めませんでした')
+  else try { svg = draw(tok.source) } catch (e) {
     // 描けない図は、ソースとエラーを渡して AI に一度だけ直させる。直したものも描けなければソースを見せる
-    s.status = 'repairing'; renderSide(s)
+    fig.classList.add('repairing')
     let fixed
-    try { fixed = await adapter.repairDiagram({ source: s.source, error: String(e.message) }) } catch { fixed = null }
+    try { fixed = await adapter.repairDiagram({ source: tok.source, error: String(e.message) }) } catch { fixed = null }
     if (!alive()) return
-    try { if (fixed == null) throw e; Object.assign(s, { svg: draw(fixed), source: fixed, status: 'ready', error: null, stale: false }) } catch (e2) { Object.assign(s, failed(e2)) }
+    fig.classList.remove('repairing')
+    try { if (fixed == null) throw e; svg = draw(fixed); tok.source = fixed } catch (e2) { error = e2 }
   }
-  renderSide(s)
+  if (svg) { fig.innerHTML = svg; fitSvg(fig.firstElementChild, box.clientWidth, DIAGRAM_MAX_H); fig.classList.add('ready') }
+  else fig.replaceChildren(h('div', { class: 'err' }, icon('alert', 13), h('span', {}, (tok.closed ? '図にできませんでした。' : '') + String(error.message).split('\n')[0])), h('pre', { class: 'code' }, tok.source))
   await sleep(200)
 }
-async function streamImage(t, i, box, tok, ord, alive) {
-  const s = ensureSide(t, i, ord, 'image')
-  Object.assign(s, { status: 'streaming', alt: tok.alt })
-  box.append(h('div', { class: 'chipline' }, sideChip(s, tok.alt || '画像')))
-  renderSide(s)
+async function streamImage(box, tok, key, alive) {
+  const fig = h('figure', { class: 'media image', 'data-key': key }, h('div', { class: 'ph' }))
+  box.append(fig)
   await sleep(900)
   if (!alive()) return
-  Object.assign(s, { status: 'ready', source: tok.image, stale: false })
-  renderSide(s)
-}
-function addUserImage(t, i, a, k) {
-  const s = ensureSide(t, i, k, 'image')
-  Object.assign(s, { status: 'ready', source: a.src, alt: '画像' })
-  const chips = msgEl(t, i).querySelector('.chips')
-  chips.hidden = false
-  chips.append(sideChip(s, '画像'))
-  renderSide(s)
+  fig.replaceChildren(h('img', { src: tok.image, alt: tok.alt || '', draggable: 'false' }))
+  fig.classList.add('ready')
 }
 
-/* ============ 選んだ一節について聞く ============
-   選ぶと、その下に投稿と同じ入力欄が出る。書いて送れば人の問いから、空のまま送れば AI が先に話して始まる */
+/* ============ 選んだ一節や画像・図について聞く ============
+   文を選ぶか、画像や図を押すと、その下に問いを書く欄が出る。問いを書いて送ると、その問いから始まるブロックが線でつながる。
+   空のままでは送れない */
 const pill = $('#pill'), pillInput = $('#pill input'), pillGo = $('#pill .go')
 pillGo.append(icon('arrowUp', 14))
-let pick = null   // { threadId, msgIndex, quote, range }
+let pick = null   // { threadId, msgIndex, quote: Quote, fig? }
+const canAsk = () => !!pick && !!pillInput.value.trim()
+const syncPill = () => { pillGo.disabled = !canAsk() }
+pillInput.addEventListener('input', syncPill)
 function hidePill() {
   if (pill.hidden) return
-  pill.hidden = true; pick = null; pillInput.value = ''
+  pill.hidden = true; pillInput.value = ''
+  pick?.fig?.classList.remove('picking')
+  pick = null; syncPill()
   window.CSS?.highlights?.delete('picking')
 }
+function showPill(p, r) {
+  pick = p; pillInput.value = ''; syncPill()
+  pill.hidden = false
+  const pw = pill.offsetWidth
+  pill.style.left = Math.min(innerWidth - pw - 12, Math.max(12, r.left + r.width / 2 - pw / 2)) + 'px'
+  pill.style.top = Math.min(innerHeight - 52, r.bottom + 10) + 'px'
+}
 document.addEventListener('mouseup', e => {
-  if (pill.contains(e.target)) return
+  // 画像と図は click で欄を出す。ここで閉じると、その欄まで消してしまう
+  if (pill.contains(e.target) || e.target.closest?.('.media.ready')) return
   setTimeout(() => {
     const sel = getSelection()
     const text = sel && !sel.isCollapsed ? sel.toString().trim() : ''
     const node = sel?.anchorNode?.parentElement
-    const box = text ? node?.closest('.msg.ai .text') : null
-    const block = box?.closest('.block')
-    const t = block && threadOf(block.dataset.thread)
-    if (!t) { hidePill(); return }
+    const box = text && !node?.closest('.media') ? node?.closest('.msg.ai .text') : null
+    const t = box && threadOf(box.closest('.block').dataset.thread)
+    hidePill()
+    if (!t) return
     const range = sel.getRangeAt(0).cloneRange()
-    pick = { threadId: t.id, msgIndex: ui.get(t.id).msgEls.indexOf(box.closest('.msg')), quote: text, range }
-    // 入力欄に移ると選択が消えるので、ハイライトで残す
+    // 欄に移ると選択が消えるので、ハイライトで残す
     window.CSS?.highlights?.set('picking', new Highlight(range))
-    pill.hidden = false
-    const r = range.getBoundingClientRect(), pw = pill.offsetWidth
-    pill.style.left = Math.min(innerWidth - pw - 12, Math.max(12, r.left + r.width / 2 - pw / 2)) + 'px'
-    pill.style.top = Math.min(innerHeight - 52, r.bottom + 10) + 'px'
+    showPill({ threadId: t.id, msgIndex: ui.get(t.id).msgEls.indexOf(box.closest('.msg')), quote: { kind: 'text', text } }, range.getBoundingClientRect())
   })
 })
+// 押したときの見た目を引用に写す。図は Mermaid のソースも持つ (サーバーに渡す問いの文脈になる)
+function askAboutMedia(fig) {
+  const [threadId, i, ord] = fig.dataset.key.split(':'), t = threadOf(threadId), m = t?.messages[+i]
+  if (!m) return
+  const img = fig.querySelector('img'), svg = fig.querySelector('svg')
+  const quote = img
+    ? { kind: 'image', key: fig.dataset.key, src: img.src, alt: img.alt }
+    : { kind: 'diagram', key: fig.dataset.key, svg: svg.outerHTML, source: [...m.parts, ...m.more].filter(isMedia)[+ord]?.source ?? '' }
+  getSelection().removeAllRanges()
+  hidePill()
+  fig.classList.add('picking')
+  showPill({ threadId, msgIndex: +i, quote, fig }, fig.getBoundingClientRect())
+  pillInput.focus({ preventScroll: true })
+}
 pillGo.addEventListener('pointerdown', e => e.preventDefault())
-pillGo.onclick = () => pick && spawn(pick, pillInput.value.trim())
-pillInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && pick) { e.preventDefault(); spawn(pick, pillInput.value.trim()) } })
-// 位置は決めない。layout() が元の一節の高さに置く。AI が先に話すときは、入力欄にフォーカスを移さない
+pillGo.onclick = () => { if (canAsk()) spawn(pick, pillInput.value.trim()) }
+pillInput.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return
+  e.preventDefault()
+  if (canAsk()) spawn(pick, pillInput.value.trim())
+})
+// 問いから始まるブロックを、元の近くの空いた場所に置く。画面の外にかかるときだけ、視点を寄せて見せる
 function spawn({ threadId, msgIndex, quote }, question) {
   const t = newThread({ origin: { threadId, msgIndex, quote } })
   hidePill(); getSelection().removeAllRanges()
   mountThread(t)
-  if (question) { t.messages.push({ role: 'user', parts: [{ text: question }], decisions: {}, assumptions: [] }); mountUserMsg(t, 0); startReply(t) }
-  else startReply(t, { aiFirst: true })
-  layoutNow()
-  reveal(placed.get(t.id))
+  t.messages.push({ role: 'user', parts: [{ text: question }], images: [], decisions: {}, assumptions: [] }); mountUserMsg(t, 0)
+  startReply(t)
+  place(t)
+  drawLinks()
+  // 図は丈が高いので、線の起点の帯だけを画面に残す
+  const a = anchorRect(t), mid = a && a.top + a.height / 2
+  reveal({ ...rectOf(t), h: headOf(t) }, a && (quote.kind === 'text' ? a : { left: a.left, right: a.right, top: mid - 20, bottom: mid + 20 }))
 }
 
 /* ============ 引用と追い質問を行き来する ============
-   元の一節を押すと追い質問のブロックへ、追い質問の上の引用を押すと元の一節へ、画面を寄せる */
-const followUpsOf = threadId => state.threads.filter(t => t.origin?.threadId === threadId)
+   元の一節を押すと追い質問のブロックへ、追い質問の上の引用を押すと元の一節や図へ、画面を寄せる。
+   画像と図を押すのは「それについて聞く」に使うので、そこから追い質問へは線をたどる */
+const followUpsOf = threadId => state.threads.filter(t => t.origin?.threadId === threadId && t.origin.quote.kind === 'text')
 function quoteAt(textEl, x, y) {
   const block = textEl.closest('.block')
   for (const t of block ? followUpsOf(block.dataset.thread) : []) {
@@ -1411,21 +1387,20 @@ function quoteAt(textEl, x, y) {
   }
   return null
 }
-function flash(el) { el.classList.remove('fresh'); void el.offsetWidth; el.classList.add('fresh') }
-function showThread(t) {
-  const r = placed.get(t.id)
-  if (!r) return
-  centerOn(r); flash(ui.get(t.id).el)
-}
+function flash(el, cls = 'fresh') { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls) }
+function showThread(t) { centerOn(rectOf(t)); flash(ui.get(t.id).el) }
 function showQuote(t) {
-  const r = quoteRange(t)
-  if (!r) return
-  const b = r.getBoundingClientRect(), p = toWorld(b.left, b.top)
+  const q = t.origin.quote, target = q.kind === 'text' ? quoteRange(t) : mediaEl(q.key)
+  if (!target) return
+  const b = target.getBoundingClientRect(), p = toWorld(b.left, b.top)
   centerOn({ x: p.x, y: p.y, w: b.width / view.z, h: b.height / view.z })
-  window.CSS?.highlights?.set('quote-flash', new Highlight(r))
+  if (q.kind !== 'text') { flash(target, 'flash'); setTimeout(() => target.classList.remove('flash'), T(1400)); return }
+  window.CSS?.highlights?.set('quote-flash', new Highlight(target))
   setTimeout(() => window.CSS?.highlights?.delete('quote-flash'), T(1400))
 }
 world.addEventListener('click', e => {
+  const fig = e.target.closest('.media.ready')
+  if (fig) { if (pick?.fig !== fig) askAboutMedia(fig); return }
   const sel = getSelection()
   if (sel && !sel.isCollapsed) return
   const line = e.target.closest('.quoteline')
@@ -1445,25 +1420,22 @@ world.addEventListener('pointermove', e => {
 })
 
 /* ============ ドラッグ ============
-   文字と入力欄の外 (ブロックの縁、発言の間、引用の行。図と画像は全体) をつかんで動かす。文字の上は選択に使う。
-   動かしたものは pinned になり、自動の配置はその位置を変えずに周りを流す。つかんだものの先の列は一緒に動く。
-   縁をダブルクリックすると自動の配置に戻る */
+   文字と入力欄の外 (ブロックの縁、発言の間、引用の行、画像と図) をつかんで動かす。文字の上は選択に使う。
+   動くのはつかんだブロックだけ。ほかのブロックは押さず、重なってよい。線はついてくる */
 const NOT_GRIP = 'textarea, input, button, .text, .bubble, .composer'
 let suppressClick = false
 world.addEventListener('pointerdown', e => {
   if (e.button !== 0) return
-  const host = e.target.closest('.block, .side')
-  if (!host || e.target.closest(NOT_GRIP)) return
-  const node = nodeOf(host.dataset.thread || host.dataset.side), r0 = node && placed.get(node.id)
-  if (!r0) return
+  const host = e.target.closest('.block'), t = host && threadOf(host.dataset.thread)
+  if (!t?.pos || (e.target.closest(NOT_GRIP) && !e.target.closest('.media.ready'))) return
   e.preventDefault()
-  const ox = e.clientX, oy = e.clientY
+  const ox = e.clientX, oy = e.clientY, p0 = { ...t.pos }
   let moved = false
   const move = m => {
     if (!moved && Math.hypot(m.clientX - ox, m.clientY - oy) < 4) return
     if (!moved) { moved = true; host.classList.add('dragging'); document.body.classList.add('dragging'); closePop(); hidePill() }
-    node.pinned = { x: Math.round(r0.x + (m.clientX - ox) / view.z), y: Math.round(r0.y + (m.clientY - oy) / view.z) }
-    layout()
+    t.pos = { x: Math.round(p0.x + (m.clientX - ox) / view.z), y: Math.round(p0.y + (m.clientY - oy) / view.z) }
+    setPos(t); drawLinks()
   }
   const up = () => {
     removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up)
@@ -1473,11 +1445,6 @@ world.addEventListener('pointerdown', e => {
   addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up)
 })
 world.addEventListener('click', e => { if (suppressClick) { e.stopPropagation(); e.preventDefault() } }, true)
-world.addEventListener('dblclick', e => {
-  const host = e.target.closest('.block, .side')
-  const node = host && !e.target.closest(NOT_GRIP) && nodeOf(host.dataset.thread || host.dataset.side)
-  if (node?.pinned) { node.pinned = null; layout() }
-})
 
 /* ============ 始まり ============
    ?scenario=travel|flow|naming は入力欄に例文を入れておく (画面には出さない、試すための入口)
@@ -1495,18 +1462,17 @@ $('#hero').prepend(heroUI.el)
 if (params.has('premise')) startWithPremise(params.get('premise'))
 else { prefill(hero.composer, heroUI); heroUI.ta.focus() }
 
-// 前提は左に置く。会話はその右の列の先頭から始まり、前提から出した追い質問も同じ列に並ぶ
+// 前提は左に、会話の入力欄はその右の上端に置く。前提から出した追い質問は、place() が空いた場所を選ぶ
 function startWithPremise(arg) {
   state.mode = 'canvas'
   document.body.classList.remove('hero')
   heroUI.el.style.visibility = 'hidden'
-  const p = newThread({ x: 48, y: 64, kind: 'premise' })
-  mountThread(p)
+  const p = newThread({ pos: { x: 48, y: 64 }, kind: 'premise' })
+  const pu = mountThread(p)
   startReply(p, { premise: arg })
-  const t = newThread({ beside: p.id })
+  const t = newThread({ pos: { x: 48 + pu.el.offsetWidth + COL_GAP, y: 64 }, lead: true })
   const u = mountThread(t, { draft: true })
   prefill(t.composer, u.comp)
-  layoutNow()
   u.comp.ta.focus({ preventScroll: true })
 }
 
@@ -1514,17 +1480,15 @@ function sendFromHero() {
   const I = heroUI.el.getBoundingClientRect()
   const fieldR = heroUI.ta.getBoundingClientRect()
   const text = hero.composer.text.trim()
-  const { msg, atts } = takeMessage(hero.composer)
+  const msg = takeMessage(hero.composer)
   state.mode = 'canvas'
   document.body.classList.remove('hero')
   const W = 460
-  const t = newThread({ x: Math.round((innerWidth - W) / 2), y: 80 })
+  const t = newThread({ pos: { x: Math.round((innerWidth - W) / 2), y: 80 } })
   t.messages.push(msg)
   const u = mountThread(t)
   mountUserMsg(t, 0)
-  atts.forEach((a, k) => addUserImage(t, 0, a, k))
   startReply(t)   // 考えている行まで同期で置かれるので、着地点はそれを含んだ大きさになる
-  layoutNow()
   morph(I, fieldR, u.el, text)
   heroUI.el.style.visibility = 'hidden'
   u.comp.ta.focus({ preventScroll: true })
@@ -1557,10 +1521,9 @@ function morph(I, fieldR, block, text) {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return
   closePop(); hidePill()
-  const t = state.threads.find(t => !t.messages.length && !t.beside && ui.get(t.id).el.contains(document.activeElement))
+  const t = state.threads.find(t => !t.messages.length && !t.lead && ui.get(t.id).el.contains(document.activeElement))
   if (t && !t.composer.text.trim()) removeThread(t)
 })
-window.addEventListener('resize', scheduleLayout)
 applyView()
 </script>
 </body>
