@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 
 const WIDGETS = ['single', 'chips', 'range', 'text']
+const CAPS = { open: 5, facts: 8 }
 const SUMMARIZER_MODEL = { claude: 'sonnet', codex: 'gpt-6.2-sol' }
 
 /* ============ 在庫の形の検証 ============ */
@@ -47,7 +48,7 @@ export function validateInventory(v) {
     if (typeof o.multiple !== 'boolean') errors.push(`${at}.multiple が真偽値ではない`)
     if (!Array.isArray(o.options) || o.options.some(x => typeof x !== 'string' || !x.trim())) errors.push(`${at}.options が文字列の配列ではない`)
     else if ((o.widget === 'single' || o.widget === 'chips') && o.options.length < 2) errors.push(`${at}.options が ${o.widget} なのに2個未満`)
-    else if (o.widget === 'range' && o.options.length !== 2) errors.push(`${at}.options が range なのに [最小, 最大] の2個ではない`)
+    else if (o.widget === 'range' && o.options.length > 1) errors.push(`${at}.options が range なのに単位1個以下ではない`)
   })
   ;(Array.isArray(v.facts) ? v.facts : []).forEach((f, i) => {
     if (!f || typeof f !== 'object') { errors.push(`facts[${i}] がオブジェクトではない`); return }
@@ -72,14 +73,14 @@ const SPEC = `## 作るもの: 在庫
   "facts": [ { "topic": "...", "value": "...", "source": "..." } ]
 }
 
-- open は、会話の中でまだ決まっていない判断。ユーザーが答えていない問い、保留にされた事柄、候補が並んだまま結論が出ていない事柄。最大8件
+- open は、会話の中でまだ決まっていない判断。ユーザーが答えていない問い、保留にされた事柄、候補が並んだまま結論が出ていない事柄。最大${CAPS.open}件。重要なものから並べる。未決のものが無ければ空配列にし、作り足さない
   - topic は論点の短い名前 (20字以内)、question はユーザーに聞く問い (80字以内)
   - widget は single (1つ選ぶ) / chips (候補から選ぶ。複数可) / range (年齢・人数・期間など連続する量) / text (自由記述) のいずれか
-  - options は、single と chips では会話に出た候補を中心に2〜6個、range では [最小, 最大] を単位つきの文字列で2個、text では空配列
+  - options は、single と chips では会話に出た候補を中心に2〜6個。range では単位だけを1個 (例: ["歳"]) か空配列にし、最小や最大は書かない。text では空配列
   - multiple は、複数選べるなら true
-  - source は、会話のどこから来たか。短い引用か言い換え (60字以内)
-- facts は、会話の中ですでに決まったこと。ユーザーが明言した前提や選択。最大12件
-  - topic は事柄の短い名前、value は決まった内容、source は会話のどこで決まったか (60字以内)
+  - source は、会話のどこから来たか。短い引用か言い換え (40字以内)
+- facts は、ユーザーが明言したか、AI の提案をユーザーが了承したことだけ。AI が仮に置いただけのことや、AI の説明や推測は facts にせず、未決なら open に入れる。最大${CAPS.facts}件
+  - topic は事柄の短い名前、value は決まった内容、source は会話のどこで決まったか (40字以内)
 - 会話に無いことは足さない。推測で埋めない。日本語で書く
 - JSON オブジェクトを1つだけ返す。前置き、説明、コードフェンスは付けない`
 
@@ -323,7 +324,7 @@ async function runCell(cell, plan, outDir) {
       const inventory = modelJson(text)
       writeFileSync(join(dir, 'inventory.json'), JSON.stringify(inventory, null, 2))
       const errors = validateInventory(inventory)
-      Object.assign(record, { valid: errors.length === 0, validationErrors: errors.slice(0, 10), openCount: inventory.open?.length, factsCount: inventory.facts?.length, overPromptCap: inventory.open?.length > 8 || inventory.facts?.length > 12 })
+      Object.assign(record, { valid: errors.length === 0, validationErrors: errors.slice(0, 10), openCount: inventory.open?.length, factsCount: inventory.facts?.length, overPromptCap: inventory.open?.length > CAPS.open || inventory.facts?.length > CAPS.facts })
     }
   } catch (error) {
     record.error = error.message
@@ -375,7 +376,7 @@ function writeReviews(outDir) {
 
 /* ============ 自己検証 ============ */
 function selftest() {
-  const good = { open: [{ topic: 't', question: 'q', widget: 'chips', options: ['a', 'b'], multiple: true, source: 's' }, { topic: 'r', question: 'q', widget: 'range', options: ['0歳', '12歳'], multiple: false, source: 's' }, { topic: 'x', question: 'q', widget: 'text', options: [], multiple: false, source: 's' }], facts: [{ topic: 't', value: 'v', source: 's' }] }
+  const good = { open: [{ topic: 't', question: 'q', widget: 'chips', options: ['a', 'b'], multiple: true, source: 's' }, { topic: 'r', question: 'q', widget: 'range', options: ['歳'], multiple: false, source: 's' }, { topic: 'x', question: 'q', widget: 'text', options: [], multiple: false, source: 's' }], facts: [{ topic: 't', value: 'v', source: 's' }] }
   assert.deepEqual(validateInventory(good), [])
   assert.ok(validateInventory({ open: [], facts: [{ topic: 't', value: '', source: 's' }] }).length)
   assert.ok(validateInventory({ ...good, open: [{ ...good.open[0], widget: 'slider' }] }).length)
