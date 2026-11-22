@@ -4,6 +4,12 @@
    envchain typesafe node tools/measure-jev.mjs run     --out DIR [--fixture tools/jev-notes.json] [--repeats 3] [--phases scaling,main,score,ship,reverse[,v2,v3]] [--pause 250] [--resume]
    node tools/measure-jev.mjs analyze --out DIR [--fixture tools/jev-notes.json]      DIR/raw.jsonl から report.json / report.md を書く（キー不要）
    node tools/measure-jev.mjs preview --note birthday [--variant full] [--reverse]    送るリクエストを出力する（送らない）
+
+   基準 B（語と、「の」でつないだ句。tools/jev-notes-b.json、規則は tools/spans.mjs）:
+   envchain typesafe node tools/measure-jev.mjs run --fixture tools/jev-notes-b.json --out DIR --phases b,bparts,brev
+   node tools/measure-jev.mjs analyze-b --fixture tools/jev-notes-b.json --out DIR    DIR/raw.jsonl から report-b.json / report-b.md を書く（キー不要）
+     b      spans 全部に assume + kind、shape を1つ（出荷する形）    bparts  語だけに同じ質問（句が語の値に影響しないかの確認）
+     brev   spans を逆順に並べて b と同じ質問（位置の偏りの確認。6件）
    node tools/measure-jev.mjs selftest                                                  純関数とリトライを、偽のサーバーで確かめる（キー不要）
 
    送るもの   POST https://api.typesafe.ai/v1/systemone  { model: 'jev-latest', state: { note, candidates: [表記] }, questions }
@@ -26,6 +32,7 @@ import { dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
+import { selectSpans, mergeWins, chainsOf, overlaps, within, mergeSpans, MARGINS } from './spans.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const ENDPOINT = 'https://api.typesafe.ai/v1/systemone'
@@ -100,9 +107,16 @@ export function makeQuestion(name, i, s) {
       type: 'noul', instructions: `${head}この語は、ユーザーが AI に作ってほしい、または決めてほしいもの（成果物そのもの、またはその主要な部分）ですか。依頼の背景や条件、前置きにすぎない語ではありませんか。${only(i)}`,
       criteria: { true: 'ユーザーが AI に求めている成果物そのもの、またはその主要な部分である。', false: '依頼の背景、条件、対象、前置きなどで、成果物ではない。' },
     }
+    /* B: ユーザーが決めた基準（Issue #1 の最新のコメント以降）。語にも「の」でつないだ句にも、同じ文言を送る。
+       impact2 と違い、false の例に地名を挙げない（「日本 → 地域」と合わないため）。例の語は ASSUME_EXAMPLES で、どの付箋にも含めない（selftest） */
+    case 'assume': return {
+      type: 'noul', instructions: `${FRAME}${target(i, s)}は、その付箋にある語、または「の」でつながった語の句です。AI がこの依頼に応えるには、これについて、付箋に書かれていない属性や条件（人数・年齢・地域・日時・予算・対象・調子・長さ・形式・ジャンルなど）を置く必要がありますか。その置き方しだいで、成果物は大きく変わりますか。${only(i)}`,
+      criteria: { true: '付箋に書かれていない属性や条件を AI が置かないと進められず、置き方しだいで成果物が大きく変わる。例えば「海外」なら国や地域、「弁当」なら人数や予算、「論文」なら分量や読み手。', false: '必要な属性や条件が付箋の文面にすでに書かれている。または、どう置いても成果物はほとんど変わらない。例えば「30分」のように値が書かれている語、「お願いします」のような依頼の言い回し。' },
+    }
     default: throw new Error(`unknown question ${name}`)
   }
 }
+export const ASSUME_EXAMPLES = ['海外', '弁当', '論文', '30分', 'お願いします']
 export function shapeQuestion() {
   return {
     type: 'choice',
@@ -118,11 +132,15 @@ export const VARIANTS = {
   ship_ambiguity: ['ambiguity', 'kind', 'shape'],
   v2: ['impact2', 'ambiguity2', 'object'],
   v3: ['central'],
+  /* 基準 B（assume）。spans は語と句を全部送る（出荷する形）。parts は語だけ（句を足しても語の値が動かないかの確認） */
+  spans: ['assume', 'kind', 'shape'],
+  parts: ['assume', 'kind', 'shape'],
 }
 const PHASE_OF = { full: 'main', score: 'score', v2: 'v2', v3: 'v3' }
 
+/* variant が spans のとき、候補は note.spans（語と句）。それ以外は note.candidates（語だけ） */
 export function buildRequest(note, variant, { reverse = false, context = '', names = VARIANTS[variant] } = {}) {
-  const surfaces = note.candidates.map(c => c.surface)
+  const surfaces = (variant === 'spans' ? note.spans : note.candidates).map(c => c.surface)
   if (reverse) surfaces.reverse()
   const state = { note: note.text, candidates: surfaces }
   if (context) state.context = context
@@ -176,9 +194,13 @@ export async function post(body, { endpoint = ENDPOINT, key, timeoutMs = 60_000,
 
 /* ============ 計画と実行 ============ */
 const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex')
+/* ラベルと問いの文言を Jev に送る前に固めたことの証拠。fixture の protocol にある値と、run のたびに照合する */
+export const labelsHash = fx => createHash('sha256').update(JSON.stringify(fx.notes.map(n => [n.id, n.set, n.text, n.underline, n.unsure]))).digest('hex')
+export const questionHash = () => createHash('sha256').update(JSON.stringify(makeQuestion('assume', 0, '{表記}'))).digest('hex')
 const loadFixture = path => JSON.parse(readFileSync(path, 'utf8'))
 const noteById = (fx, id) => { const n = fx.notes.find(x => x.id === id); if (!n) throw new Error(`付箋 ${id} が無い`); return n }
 const REVERSE_NOTES = ['birthday', 'study-talk', 'offsite']
+const REVERSE_B_NOTES = ['birthday', 'study-talk', 'offsite', 'cafe-open', 'training-redo', 'launch']
 const SCALING_K = [1, 2, 4, 8, 16, 32, 48, 64]
 const SCALING_CHARS = [0, 1000, 4000, 16000]
 
@@ -193,7 +215,8 @@ export function buildPlan(fx, { repeats = 3, phases = ['scaling', 'main', 'score
   const add = (phase, variant, note, repeat, req, extra = '') =>
     jobs.push({ id: `${phase}|${variant}|${note.id}|${extra}|r${repeat}`, phase, variant, noteId: note.id, repeat, extra, ...req })
   const first = fx.notes[0], bd = noteById(fx, 'birthday')
-  add('warmup', 'ship_impact', first, 0, buildRequest(first, 'ship_impact'))
+  const warmVariant = phases.includes('b') ? 'spans' : 'ship_impact'
+  add('warmup', warmVariant, first, 0, buildRequest(first, warmVariant))
   if (phases.includes('scaling')) {
     for (let r = 1; r <= repeats; r++) {
       for (const k of SCALING_K) add('scaling-questions', `q${k}`, bd, r, buildScalingQuestions(bd, k))
@@ -209,6 +232,9 @@ export function buildPlan(fx, { repeats = 3, phases = ['scaling', 'main', 'score
   if (phases.includes('v2')) rounds('v2', 'v2', fx.notes)
   if (phases.includes('v3')) rounds('v3', 'v3', fx.notes)
   if (phases.includes('reverse')) rounds('reverse', 'full', REVERSE_NOTES.map(id => noteById(fx, id)), { reverse: true })
+  if (phases.includes('b')) rounds('b', 'spans', fx.notes)
+  if (phases.includes('bparts')) rounds('bparts', 'parts', fx.notes)
+  if (phases.includes('brev')) rounds('brev', 'spans', REVERSE_B_NOTES.map(id => noteById(fx, id)), { reverse: true })
   return jobs
 }
 
@@ -222,13 +248,17 @@ async function runCommand(opt) {
   const rawPath = join(out, 'raw.jsonl')
   const repeats = Number(opt.repeats), pause = Number(opt.pause)
   const phases = opt.phases.split(',')
+  const labelsSha256 = labelsHash(fx), questionSha256 = questionHash()
+  if (fx.protocol?.labelsSha256 && fx.protocol.labelsSha256 !== labelsSha256) throw new Error('ラベルが protocol.labelsSha256 と違う。Jev を呼ぶ前に固めたラベルを変えてはいけない')
+  if (fx.protocol?.questionSha256 && fx.protocol.questionSha256 !== questionSha256) throw new Error('B の問いの文言が protocol.questionSha256 と違う')
+  if (phases.some(p => ['b', 'bparts', 'brev'].includes(p)) && fx.notes.some(n => !n.spans)) throw new Error('spans が無い付箋がある。tools/extract-jev-candidates.mjs を先に実行する')
   const done = new Set()
   if (opt.resume && existsSync(rawPath)) for (const l of readFileSync(rawPath, 'utf8').split('\n').filter(Boolean)) { const r = JSON.parse(l); if (r.status === 200) done.add(r.id) }
   else if (existsSync(rawPath)) throw new Error(`${rawPath} が既にある。--resume で続けるか、別の --out にする`)
   const metaPath = join(out, 'meta.json')
   const meta = {
     startedAt: new Date().toISOString(), node: process.version, platform: process.platform, loadavgAtStart: loadavg(),
-    fixtureSha256: sha256(fxPath), endpoint: opt.endpoint, modelRequested: MODEL, repeats, pauseMs: pause, phases,
+    fixtureSha256: sha256(fxPath), labelsSha256, questionSha256, endpoint: opt.endpoint, modelRequested: MODEL, repeats, pauseMs: pause, phases,
   }
   if (opt.resume && existsSync(metaPath)) {
     const prev = JSON.parse(readFileSync(metaPath, 'utf8'))
@@ -723,6 +753,520 @@ export function renderMarkdown(R) {
   return L.join('\n') + '\n'
 }
 
+/* ============ 基準 B の集計（語と句の spans。Issue #1） ============
+   値は assume（noul）の3回の平均。正解は重ならない単位の集合（fixture の underline。単位は語か句）。
+   protocol は tools/jev-notes-b.json に、run の前に決めて書いてある。 */
+export const CAPS = [3, 4, 5]
+const SET_NAMES = ['old', 'heldout', 'pooled']
+const notesOf = (fx, set) => fx.notes.filter(n => set === 'pooled' || n.set === set)
+const mlabel = m => Number.isFinite(m) ? m : 'inf'
+
+/* 正解の単位（note.spans の添字）。mode: negative（unsure は付けない側）/ positive（unsure も付ける。underline と重なるものは除く）/ drop（unsure は数えない）。
+   unsure: drop のとき数えない添字。overlapOnly: 正解の単位と重なるが同じではない spans（AUC から除く） */
+const goldCache = new WeakMap()
+export function goldOf(note, mode = 'negative') {
+  const byMode = goldCache.get(note) ?? goldCache.set(note, new Map()).get(note)
+  if (!byMode.has(mode)) byMode.set(mode, goldOfUncached(note, mode))
+  return byMode.get(mode)
+}
+function goldOfUncached(note, mode) {
+  const idx = new Map(note.spans.map((s, i) => [s.surface, i]))
+  const U = note.underline.map(x => idx.get(x)), N = note.unsure.map(x => idx.get(x))
+  const gold = new Set(U)
+  if (mode === 'positive') for (const i of N) if (![...gold].some(g => overlaps(note.spans[i], note.spans[g]))) gold.add(i)
+  const unsure = new Set(mode === 'drop' ? N : [])
+  const overlapOnly = new Set()
+  note.spans.forEach((s, i) => { if (!gold.has(i) && [...gold].some(g => overlaps(s, note.spans[g]))) overlapOnly.add(i) })
+  return { gold, unsure, overlapOnly }
+}
+
+/* spans の全てについての AUC。正例は正解の単位、負例はどの正解の単位とも重ならない spans。only で対象を絞る（語だけ、など） */
+export function aucSpans(items, { mode = 'negative', only = null } = {}) {
+  const P = [], N = []
+  for (const { note, v } of items) {
+    const { gold, unsure, overlapOnly } = goldOf(note, mode)
+    note.spans.forEach((s, i) => {
+      if ((only && !only(s)) || unsure.has(i) || overlapOnly.has(i) || !Number.isFinite(v[i])) return
+      ;(gold.has(i) ? P : N).push(v[i])
+    })
+  }
+  if (!P.length || !N.length) return null
+  let s = 0
+  for (const p of P) for (const n of N) s += p > n ? 1 : p === n ? 0.5 : 0
+  return s / (P.length * N.length)
+}
+
+/* chooser(it) は spans の添字の配列。strict は表記と位置まで一致、lenient は重なれば当たり */
+export function tallySpans(items, chooser, { mode = 'negative', lenient = false } = {}) {
+  let tp = 0, fp = 0, fn = 0
+  for (const it of items) {
+    const { gold, unsure } = goldOf(it.note, mode), sel = chooser(it), sp = it.note.spans
+    if (!lenient) {
+      for (const i of sel) { if (gold.has(i)) tp++; else if (!unsure.has(i)) fp++ }
+      for (const g of gold) if (!sel.includes(g)) fn++
+    } else {
+      for (const i of sel) { if ([...gold].some(g => overlaps(sp[i], sp[g]))) tp++; else if (!unsure.has(i)) fp++ }
+      for (const g of gold) if (!sel.some(i => overlaps(sp[i], sp[g]))) fn++
+    }
+  }
+  return prf(tp, fp, fn)
+}
+const spanChooser = params => it => selectSpans(it.note.spans, it.v, params)
+const rankChooser = cap => it => it.note.baselineRank.slice(0, cap).map(sf => it.note.spans.findIndex(s => s.surface === sf)).filter(i => i >= 0)
+
+/* 「の」でつながった語の列ごとの、正解との関係。2語の列は type が merged（正解が句）/ both（正解が両方の語）/ one（片方の語）/ none。3語以上は chainN */
+export function chainInfos(note, mode = 'negative') {
+  const { gold } = goldOf(note, mode)
+  return chainsOf(note.spans).map(ch => {
+    const inside = note.spans.map((_, i) => i).filter(i => within(note.spans[i], ch.span))
+    const parts = inside.filter(i => !note.spans[i].merged), merged = inside.filter(i => note.spans[i].merged)
+    const goldIn = inside.filter(i => gold.has(i))
+    const type = parts.length === 2 ? (gold.has(merged[0]) ? 'merged' : goldIn.length === 2 ? 'both' : goldIn.length === 1 ? 'one' : 'none') : `chain${parts.length}`
+    return { surface: ch.span.surface, span: ch.span, nParts: parts.length, type, inside, parts, merged, goldIn }
+  })
+}
+const decisionTypes = ['merged', 'both']
+
+/* 句が語に勝つかだけの判定の正答率。2語の列で、正解が句か両方の語のものだけを数える。t と cap には依らない */
+export function chainDecision(items, margin) {
+  let n = 0, ok = 0
+  for (const it of items) for (const ch of chainInfos(it.note)) {
+    if (!decisionTypes.includes(ch.type)) continue
+    n++
+    if (mergeWins(ch.span, it.note.spans, it.v, margin) === (ch.type === 'merged')) ok++
+  }
+  return { n, ok, rate: n ? ok / n : null }
+}
+
+/* 選択まで通したときに、列の中の選択が正解と一致した数。type ごと */
+export function chainEnd(items, params) {
+  const out = {}
+  for (const it of items) {
+    const sel = selectSpans(it.note.spans, it.v, params)
+    for (const ch of chainInfos(it.note)) {
+      const selIn = sel.filter(i => ch.inside.includes(i)), goldSet = new Set(ch.goldIn)
+      const hit = selIn.length === goldSet.size && selIn.every(i => goldSet.has(i))
+      const o = out[ch.type] ??= { total: 0, matched: 0 }
+      o.total++; if (hit) o.matched++
+    }
+  }
+  return out
+}
+
+/* protocol.tuning の規則: strict F1 が最大の (t, margin)。0.02 以内で並ぶなら、適合率、句の判定の正答率、t が高い方、margin が小さい方の順 */
+export function tuneB(items, cap, { margins = MARGINS, ts = THRESHOLDS } = {}) {
+  const rows = []
+  for (const margin of margins) {
+    const dec = chainDecision(items, margin)
+    for (const t of ts) rows.push({ t, margin, ...tallySpans(items, spanChooser({ t, cap, margin })), chainAcc: dec.rate })
+  }
+  const top = Math.max(...rows.map(r => r.f1))
+  const near = rows.filter(r => r.f1 >= top - 0.02)
+  near.sort((a, b) => (b.precision ?? 0) - (a.precision ?? 0) || (b.chainAcc ?? -1) - (a.chainAcc ?? -1) || b.t - a.t || (a.margin < b.margin ? -1 : a.margin > b.margin ? 1 : 0))
+  return { best: near[0], rows }
+}
+
+/* note.id -> repeat 順の { repeat, v }（v は note.spans と同じ並び。記録に無い span は NaN） */
+export function spanRows(fx, records, phase, variant, name = 'assume', extra = '') {
+  const out = new Map()
+  for (const rec of records.filter(r => r.ok && r.phase === phase && r.variant === variant && (r.extra ?? '') === extra)) {
+    const note = noteById(fx, rec.noteId)
+    const byKey = Object.fromEntries(rec.candidates.map((s, i) => [s, rec.answers[`${name}_${i}`]]))
+    const v = note.spans.map(s => { const a = byKey[s.surface]; return a ? (a.type === 'noul' ? a.noul : a.score) : NaN })
+    if (!out.has(note.id)) out.set(note.id, [])
+    out.get(note.id).push({ repeat: rec.repeat, v })
+  }
+  for (const rows of out.values()) rows.sort((a, b) => a.repeat - b.repeat)
+  return out
+}
+export const spanItems = (fx, rows, set = 'pooled') => notesOf(fx, set).filter(n => rows.has(n.id)).map(note => {
+  const reps = rows.get(note.id).map(r => r.v)
+  return { note, reps, v: note.spans.map((_, i) => { const xs = reps.map(r => r[i]).filter(Number.isFinite); return xs.length ? round6(mean(xs)) : NaN }) }
+})
+
+function recallCeiling(notes, cap) {
+  let g = 0, m = 0
+  for (const n of notes) { g += n.underline.length; m += Math.min(n.underline.length, cap) }
+  return { gold: g, reachable: m, rate: g ? m / g : null }
+}
+
+/* 3回の選択が同じか（閾値の規則）と、閾値なしの上位 k（重ならない k 個）が同じか */
+function stabilityB(items, params) {
+  const key = (note, v, p) => selectSpans(note.spans, v, p).map(i => note.spans[i].surface).sort().join('|')
+  const run = p => {
+    let same = 0, n = 0, jac = []
+    for (const it of items) {
+      if (it.reps.length < 2) continue
+      const sets = it.reps.map(v => new Set(selectSpans(it.note.spans, v, p).map(i => it.note.spans[i].surface)))
+      n++; if (new Set(sets.map(s => [...s].sort().join('|'))).size === 1) same++
+      for (let a = 0; a < sets.length; a++) for (let b = a + 1; b < sets.length; b++) {
+        const u = new Set([...sets[a], ...sets[b]]); jac.push(u.size ? [...sets[a]].filter(x => sets[b].has(x)).length / u.size : 1)
+      }
+    }
+    return { same, notes: n, meanJaccard: jac.length ? mean(jac) : null }
+  }
+  return { rule: run(params), topK: Object.fromEntries(CAPS.map(k => [k, run({ t: 0, cap: k, margin: params.margin })])) }
+}
+
+/* 取りこぼしと誤りの理由。取りこぼし: 値が t 未満 / 別の選択と重なる（句か語かの食い違い、競合） / cap で溢れた。誤り: unsure / 正解の単位と重なる（粒度違い） / 負 */
+function limiterB(items, params) {
+  const o = { gold: 0, hit: 0, missBelowT: 0, missOverlap: 0, missCap: 0, selected: 0, fpUnsure: 0, fpGranularity: 0, fpNegative: 0 }
+  for (const it of items) {
+    const { gold } = goldOf(it.note), sel = selectSpans(it.note.spans, it.v, params), sp = it.note.spans
+    for (const g of gold) {
+      o.gold++
+      if (sel.includes(g)) o.hit++
+      else if (it.v[g] < params.t - 1e-9) o.missBelowT++
+      else if (sel.some(i => overlaps(sp[i], sp[g]))) o.missOverlap++
+      else o.missCap++
+    }
+    for (const i of sel) {
+      o.selected++
+      if (gold.has(i)) continue
+      if (it.note.unsure.includes(sp[i].surface)) o.fpUnsure++
+      else if ([...gold].some(g => overlaps(sp[i], sp[g]))) o.fpGranularity++
+      else o.fpNegative++
+    }
+  }
+  return o
+}
+
+function pairedDelta(items, A, B, opt = {}) {
+  const f = s => tallySpans(s, A, opt).f1 - tallySpans(s, B, opt).f1
+  return { diff: f(items), ci: bootstrap(items, f) }
+}
+
+export function analyzeB(fx, records, meta = {}) {
+  const R = { meta, records: records.length }
+  const rows = spanRows(fx, records, 'b', 'spans')
+  const partsRows = spanRows(fx, records, 'bparts', 'parts')
+  const revRows = spanRows(fx, records, 'brev', 'spans', 'assume', 'reverse')
+  const it = Object.fromEntries(SET_NAMES.map(s => [s, spanItems(fx, rows, s)]))
+  const itParts = Object.fromEntries(SET_NAMES.map(s => [s, spanItems(fx, partsRows, s)]))
+
+  R.labels = Object.fromEntries(SET_NAMES.map(s => {
+    const ns = notesOf(fx, s), chains = ns.flatMap(n => chainInfos(n).map(c => c.type))
+    return [s, {
+      notes: ns.length, words: ns.reduce((a, n) => a + n.candidates.length, 0), spans: ns.reduce((a, n) => a + n.spans.length, 0),
+      mergedSpans: ns.reduce((a, n) => a + n.spans.filter(x => x.merged).length, 0), underlineUnits: ns.reduce((a, n) => a + n.underline.length, 0),
+      underlineMergedUnits: ns.reduce((a, n) => a + n.underline.filter(u => n.spans.find(x => x.surface === u)?.merged).length, 0), unsure: ns.reduce((a, n) => a + n.unsure.length, 0),
+      notesWithoutUnderline: ns.filter(n => !n.underline.length).length,
+      overCap: Object.fromEntries(CAPS.map(c => [c, ns.filter(n => n.underline.length > c).length])),
+      underlineHistogram: Object.entries(ns.reduce((h, n) => (h[n.underline.length] = (h[n.underline.length] ?? 0) + 1, h), {})).map(([k, v]) => [Number(k), v]).sort((a, b) => a[0] - b[0]),
+      recallCeiling: Object.fromEntries(CAPS.map(c => [c, recallCeiling(ns, c)])),
+      chainTypes: chains.reduce((h, t) => (h[t] = (h[t] ?? 0) + 1, h), {}),
+    }]
+  }))
+
+  const ranges = []
+  for (const reps of rows.values()) reps[0].v.forEach((_, i) => { const xs = reps.map(r => r.v[i]).filter(Number.isFinite); if (xs.length > 1) ranges.push(Math.max(...xs) - Math.min(...xs)) })
+  R.noise = { ...summary(ranges), p95: ranges.length ? quantile(ranges, 0.95) : null, zero: ranges.filter(x => x === 0).length, ge010: ranges.filter(x => x >= 0.1 - 1e-9).length }
+
+  R.auc = Object.fromEntries(SET_NAMES.map(s => [s, {
+    spans: auc2(it[s]), wordsInSpansRequest: auc2(it[s], x => !x.merged), wordsInPartsRequest: auc2(itParts[s], x => !x.merged),
+    mergedOnly: auc2(it[s], x => x.merged),
+    unsurePositive: aucSpans(it[s], { mode: 'positive' }), unsureDrop: aucSpans(it[s], { mode: 'drop' }),
+  }]))
+  function auc2(items, only = null) { return items.length ? { auc: aucSpans(items, { only }), ci: bootstrap(items, x => aucSpans(x, { only })) } : null } // eslint-disable-line
+
+  // old で選んだ値を、全ての set で評価する
+  R.tuned = {}
+  for (const cap of CAPS) {
+    const merge = tuneB(it.old, cap), words = tuneB(it.old, cap, { margins: [Infinity] })
+    const own = tuneB(it.heldout, cap), ownWords = tuneB(it.heldout, cap, { margins: [Infinity] })
+    const evalSet = (items, params) => ({ strict: tallySpans(items, spanChooser(params)), lenient: tallySpans(items, spanChooser(params), { lenient: true }), drop: tallySpans(items, spanChooser(params), { mode: 'drop' }), positive: tallySpans(items, spanChooser(params), { mode: 'positive' }) })
+    const mp = { t: merge.best.t, cap, margin: merge.best.margin }, wp = { t: words.best.t, cap, margin: Infinity }
+    R.tuned[cap] = {
+      mergeParams: { t: mp.t, margin: mlabel(mp.margin) }, wordsParams: { t: wp.t }, heldoutOwnMerge: { t: own.best.t, margin: mlabel(own.best.margin), f1: own.best.f1 }, heldoutOwnWords: { t: ownWords.best.t, f1: ownWords.best.f1 },
+      merge: Object.fromEntries(SET_NAMES.map(s => [s, evalSet(it[s], mp)])),
+      words: Object.fromEntries(SET_NAMES.map(s => [s, evalSet(it[s], wp)])),
+      rank: Object.fromEntries(SET_NAMES.map(s => [s, { strict: tallySpans(it[s], rankChooser(cap)), lenient: tallySpans(it[s], rankChooser(cap), { lenient: true }) }])),
+      mergeVsWords: Object.fromEntries(SET_NAMES.map(s => [s, pairedDelta(it[s], spanChooser(mp), spanChooser(wp))])),
+      mergeVsRank: Object.fromEntries(SET_NAMES.map(s => [s, { strict: pairedDelta(it[s], spanChooser(mp), rankChooser(cap)), lenient: pairedDelta(it[s], spanChooser(mp), rankChooser(cap), { lenient: true }) }])),
+      wordsVsRank: Object.fromEntries(SET_NAMES.map(s => [s, pairedDelta(it[s], spanChooser(wp), rankChooser(cap))])),
+      f1Ceiling: Object.fromEntries(SET_NAMES.map(s => { const c = R.labels[s].recallCeiling[cap]; const g = c.gold; return [s, g ? (2 * c.rate) / (1 + c.rate) : null] })),
+    }
+  }
+
+  // cap の推奨: heldout の strict F1（old で選んだ値）が最大の cap から 0.02 以内で、最小の cap
+  const hf = Object.fromEntries(CAPS.map(c => [c, R.tuned[c].merge.heldout.strict.f1])), best = Math.max(...Object.values(hf))
+  const recCap = CAPS.find(c => hf[c] >= best - 0.02)
+  R.recommended = { cap: recCap, t: R.tuned[recCap].mergeParams.t, margin: R.tuned[recCap].mergeParams.margin, heldoutF1ByCap: hf }
+  const rp = { t: R.recommended.t, cap: recCap, margin: R.recommended.margin === 'inf' ? Infinity : R.recommended.margin }
+
+  // 全格子（参考）
+  R.grid = []
+  for (const s of SET_NAMES) for (const cap of CAPS) for (const margin of MARGINS) for (const t of THRESHOLDS) {
+    const strict = tallySpans(it[s], spanChooser({ t, cap, margin }))
+    R.grid.push({ set: s, cap, t, margin: mlabel(margin), tp: strict.tp, fp: strict.fp, fn: strict.fn, precision: strict.precision, recall: strict.recall, f1: strict.f1 })
+  }
+
+  // 句の判定と、選択まで通した結果
+  R.merge = {
+    byMargin: MARGINS.map(m => ({
+      margin: mlabel(m),
+      decision: Object.fromEntries(SET_NAMES.map(s => [s, chainDecision(it[s], m)])),
+      f1AtRecommended: Object.fromEntries(SET_NAMES.map(s => [s, tallySpans(it[s], spanChooser({ ...rp, margin: m })).f1])),
+      end: Object.fromEntries(SET_NAMES.map(s => [s, chainEnd(it[s], { ...rp, margin: m })])),
+    })),
+    chains: [],
+  }
+  for (const note of fx.notes) {
+    const item = it.pooled.find(x => x.note.id === note.id); if (!item) continue
+    const sel = selectSpans(note.spans, item.v, rp)
+    for (const ch of chainInfos(note)) {
+      const selIn = sel.filter(i => ch.inside.includes(i))
+      const max = Math.max(...ch.parts.map(i => item.v[i]))
+      R.merge.chains.push({
+        note: note.id, set: note.set, chain: ch.surface, nParts: ch.nParts, label: ch.type, goldIn: ch.goldIn.map(i => note.spans[i].surface),
+        values: Object.fromEntries(ch.inside.map(i => [note.spans[i].surface, item.v[i]])), d: ch.nParts === 2 ? item.v[ch.merged[0]] - max : null,
+        selected: selIn.map(i => note.spans[i].surface), matched: selIn.length === ch.goldIn.length && selIn.every(i => ch.goldIn.includes(i)),
+      })
+    }
+  }
+  const dOf = (set, type) => R.merge.chains.filter(c => c.d !== null && c.label === type && (set === 'pooled' || c.set === set)).map(c => c.d)
+  R.merge.d = Object.fromEntries(SET_NAMES.map(s => [s, {
+    ...Object.fromEntries(['merged', 'both', 'one', 'none'].map(t => [t, { n: dOf(s, t).length, mean: dOf(s, t).length ? mean(dOf(s, t)) : null, min: dOf(s, t).length ? Math.min(...dOf(s, t)) : null, max: dOf(s, t).length ? Math.max(...dOf(s, t)) : null }])),
+    aucMergedVsBoth: (() => { const P = dOf(s, 'merged'), N = dOf(s, 'both'); if (!P.length || !N.length) return null; let a = 0; for (const p of P) for (const n of N) a += p > n ? 1 : p === n ? 0.5 : 0; return a / (P.length * N.length) })(),
+  }]))
+
+  R.stability = Object.fromEntries(['old', 'heldout'].map(s => [s, stabilityB(it[s], rp)]))
+  R.limiter = Object.fromEntries(SET_NAMES.map(s => [s, limiterB(it[s], rp)]))
+
+  // 句を足しても語の値が動かないか（parts と spans の語の値の差）、位置の偏り（逆順）
+  const wordDiffs = [], betweenRepeats = []
+  for (const [id, reps] of rows) {
+    const note = noteById(fx, id), pr = partsRows.get(id); if (!pr) continue
+    note.spans.forEach((s, i) => {
+      if (s.merged) return
+      const a = mean(reps.map(r => r.v[i])), b = mean(pr.map(r => r.v[i]))
+      wordDiffs.push(Math.abs(a - b))
+      for (let x = 0; x < reps.length; x++) for (let y = x + 1; y < reps.length; y++) betweenRepeats.push(Math.abs(reps[x].v[i] - reps[y].v[i]))
+    })
+  }
+  R.contamination = {
+    wordsMeanAbsDiffPartsVsSpans: wordDiffs.length ? mean(wordDiffs) : null, wordsMeanAbsDiffBetweenRepeats: betweenRepeats.length ? mean(betweenRepeats) : null, n: wordDiffs.length,
+    f1PartsRequestWordsOnly: Object.fromEntries(SET_NAMES.map(s => [s, itParts[s].length ? tallySpans(itParts[s], spanChooser({ t: R.tuned[recCap].wordsParams.t, cap: recCap, margin: Infinity })).f1 : null])),
+  }
+  const rev = []
+  for (const [id, rr] of revRows) {
+    const note = noteById(fx, id), fwd = rows.get(id); if (!fwd) continue
+    const fm = note.spans.map((_, i) => mean(fwd.map(r => r.v[i]))), rm = note.spans.map((_, i) => mean(rr.map(r => r.v[i])))
+    const item = it.pooled.find(x => x.note.id === id)
+    const selF = selectSpans(note.spans, fm, rp).map(i => note.spans[i].surface).sort().join('|'), selR = selectSpans(note.spans, rm, rp).map(i => note.spans[i].surface).sort().join('|')
+    rev.push({ note: id, meanAbsDiff: mean(fm.map((x, i) => Math.abs(x - rm[i]))), maxAbsDiff: Math.max(...fm.map((x, i) => Math.abs(x - rm[i]))), sameSelection: selF === selR, item: !!item })
+  }
+  R.reverse = rev
+
+  // kind と shape（出荷する形で聞いた分）
+  const recsB = records.filter(r => r.ok && r.phase === 'b' && r.variant === 'spans')
+  const kinds = [], shapes = []
+  for (const note of fx.notes) {
+    const rs = recsB.filter(r => r.noteId === note.id); if (!rs.length) continue
+    note.spans.forEach(s => {
+      const ans = rs.map(r => r.answers[`kind_${r.candidates.indexOf(s.surface)}`]).filter(Boolean); if (!ans.length) return
+      const [choice, votes] = modal(ans.map(a => a.choice))
+      kinds.push({ note: note.id, surface: s.surface, merged: s.merged, gold: note.underline.includes(s.surface), choice, votes, of: ans.length, confidence: mean(ans.filter(a => a.choice === choice).map(a => a.confidence)) })
+    })
+    const sa = rs.map(r => r.answers.shape), [choice, votes] = modal(sa.map(a => a.choice))
+    shapes.push({ note: note.id, choice, votes, of: sa.length })
+  }
+  const dist = xs => Object.fromEntries([...groupBy(xs, r => r.choice)].map(([k, v]) => [k, v.length]).sort((a, b) => b[1] - a[1]))
+  const unanimous = xs => ({ all: xs.filter(k => k.votes === k.of).length, of: xs.length })
+  R.kindShape = {
+    kindDist: dist(kinds), kindDistGold: dist(kinds.filter(k => k.gold)), kindUnanimous: unanimous(kinds), kindUnanimousGold: unanimous(kinds.filter(k => k.gold)), kindUnanimousMerged: unanimous(kinds.filter(k => k.merged)),
+    kindConfidence: kinds.length ? summary(kinds.map(k => k.confidence)) : null, shapeDist: dist(shapes), shapeUnanimous: unanimous(shapes),
+  }
+
+  // 遅延・費用・失敗
+  const ok = records.filter(r => r.ok && r.phase !== 'warmup'), lat = rs => rs.map(r => r.latencyMs)
+  R.latency = ['b', 'bparts', 'brev'].map(p => {
+    const rs = ok.filter(r => r.phase === p); if (!rs.length) return null
+    return { phase: p, ...summary(lat(rs)), over1000: lat(rs).filter(x => x > 1000).length, questions: summary(rs.map(r => r.questions)), inputTokens: summary(rs.map(r => r.usage.input_tokens)) }
+  }).filter(Boolean)
+  const spansRecs = ok.filter(r => r.phase === 'b')
+  R.latencyVsQuestions = spansRecs.length > 2 ? ols(spansRecs.map(r => r.questions), lat(spansRecs)) : null
+  const phasesUsd = [...groupBy(records.filter(r => r.ok), r => r.phase)].map(([phase, xs]) => ({ phase, requests: xs.length, inputTokens: xs.reduce((a, r) => a + r.usage.input_tokens, 0), usd: xs.reduce((a, r) => a + r.usage.input_tokens, 0) * USD_PER_M_INPUT / 1e6 }))
+  R.cost = { phases: phasesUsd, totalUsd: phasesUsd.reduce((a, p) => a + p.usd, 0), models: [...new Set(records.filter(r => r.ok).map(r => r.model))], perShipRequestUsd: spansRecs.length ? mean(spansRecs.map(r => r.usage.input_tokens)) * USD_PER_M_INPUT / 1e6 : null }
+  R.failures = records.filter(r => !r.ok).map(r => ({ id: r.id, status: r.status, error: r.error }))
+  R.retried = records.filter(r => r.retries?.length).length
+  R.missingAnswers = records.filter(r => r.ok && ['b', 'bparts', 'brev'].includes(r.phase)).filter(r => Object.keys(r.answers).length !== r.questions).length
+
+  // 誕生日の付箋
+  const bd = noteById(fx, 'birthday'), bdItem = it.pooled.find(x => x.note.id === 'birthday')
+  if (bdItem) {
+    const sel = new Set(selectSpans(bd.spans, bdItem.v, rp)), selWords = new Set(selectSpans(bd.spans, bdItem.v, { ...rp, margin: Infinity }))
+    const ks = kinds.filter(k => k.note === 'birthday')
+    R.birthday = {
+      selected: [...sel].map(i => bd.spans[i].surface), selectedWordsOnly: [...selWords].map(i => bd.spans[i].surface),
+      selectedByMargin: Object.fromEntries([0.1, 0.05, 0.03, 0.02, 0, -0.1].map(m => [m, selectSpans(bd.spans, bdItem.v, { ...rp, margin: m }).map(i => bd.spans[i].surface)])),
+      selectedByCapMargin: Object.fromEntries(CAPS.flatMap(c => [0.05, 0.03, 0].map(m => [`cap${c} margin${m}`, selectSpans(bd.spans, bdItem.v, { ...rp, cap: c, margin: m }).map(i => bd.spans[i].surface)]))),
+      spans: bd.spans.map((s, i) => {
+        const xs = bdItem.reps.map(r => r[i])
+        return { surface: s.surface, merged: s.merged, label: bd.underline.includes(s.surface) ? 'underline' : bd.unsure.includes(s.surface) ? 'unsure' : '-', mean: bdItem.v[i], min: Math.min(...xs), max: Math.max(...xs), selected: sel.has(i), selectedWordsOnly: selWords.has(i), kind: ks.find(k => k.surface === s.surface) }
+      }),
+    }
+  }
+
+  // 追加（結果を見たあとに足した記述統計。protocol の規則には入っていない）
+  const ex = R.extra = {}
+  const fixed = (cap, margin = rp.margin) => spanChooser({ t: rp.t, cap, margin })
+  const tunedAt = cap => spanChooser({ t: R.tuned[cap].mergeParams.t, cap, margin: R.tuned[cap].mergeParams.margin === 'inf' ? Infinity : R.tuned[cap].mergeParams.margin })
+  ex.capFixedParams = Object.fromEntries(SET_NAMES.map(s => [s, { '4vs3': pairedDelta(it[s], fixed(4), fixed(3)), '5vs4': pairedDelta(it[s], fixed(5), fixed(4)), '5vs3': pairedDelta(it[s], fixed(5), fixed(3)) }]))
+  ex.capTunedParams = Object.fromEntries(SET_NAMES.map(s => [s, { '4vs3': pairedDelta(it[s], tunedAt(4), tunedAt(3)), '5vs4': pairedDelta(it[s], tunedAt(5), tunedAt(4)), '5vs3': pairedDelta(it[s], tunedAt(5), tunedAt(3)) }]))
+  ex.marginVsRecommended = Object.fromEntries(SET_NAMES.map(s => [s, Object.fromEntries(MARGINS.filter(m => m !== rp.margin).map(m => [mlabel(m), pairedDelta(it[s], fixed(recCap), fixed(recCap, m))]))]))
+  ex.selectedPerNote = Object.fromEntries(CAPS.map(c => [c, Object.fromEntries(SET_NAMES.map(s => { const x = R.tuned[c].merge[s].strict; return [s, (x.tp + x.fp) / R.labels[s].notes] }))]))
+  ex.goldPerNote = Object.fromEntries(SET_NAMES.map(s => [s, R.labels[s].underlineUnits / R.labels[s].notes]))
+  const paramsOf = c => ({ t: R.tuned[c].mergeParams.t, cap: c, margin: R.tuned[c].mergeParams.margin === 'inf' ? Infinity : R.tuned[c].mergeParams.margin })
+  ex.limiterByCap = Object.fromEntries(CAPS.map(c => [c, Object.fromEntries(SET_NAMES.map(s => [s, { ...limiterB(it[s], paramsOf(c)), notesAtCap: it[s].filter(x => selectSpans(x.note.spans, x.v, paramsOf(c)).length >= c).length }]))]))
+  // 1回だけ送ったとき（出荷する形）の F1。3回の平均ではなく、周回ごと
+  const nRep = Math.min(...it.pooled.map(x => x.reps.length))
+  const perRepeat = (s, params) => Array.from({ length: nRep }, (_, r) => tallySpans(it[s].map(x => ({ note: x.note, v: x.reps[r] })), spanChooser(params)).f1)
+  ex.singleShotF1 = Object.fromEntries(SET_NAMES.map(s => [s, {
+    recommended: perRepeat(s, rp), margin0: perRepeat(s, { ...rp, margin: 0 }), wordsOnly: perRepeat(s, { ...rp, margin: Infinity }),
+    meanOfRepeatsRecommended: tallySpans(it[s], spanChooser(rp)).f1,
+  }]))
+  // B の値の分布（正解の単位と、それ以外）。t が効く範囲か
+  const gv = [], nv = []
+  for (const x of it.pooled) { const { gold, unsure, overlapOnly } = goldOf(x.note); x.note.spans.forEach((sp, i) => { if (overlapOnly.has(i) || unsure.has(i)) return; (gold.has(i) ? gv : nv).push(x.v[i]) }) }
+  const dist2 = xs => ({ n: xs.length, mean: mean(xs), p10: quantile(xs, 0.1), p50: quantile(xs, 0.5), p90: quantile(xs, 0.9), ge50: xs.filter(v => v >= 0.5).length / xs.length, ge70: xs.filter(v => v >= 0.7).length / xs.length, ge80: xs.filter(v => v >= 0.8).length / xs.length })
+  ex.valueDist = { gold: dist2(gv), nonGold: dist2(nv) }
+  // 句の判定が3回の繰り返しで安定か（句が語に勝つかの符号）。d の AUC の区間
+  ex.decisionStability = Object.fromEntries([0, 0.05].map(m => {
+    let same = 0, n = 0
+    for (const x of it.pooled) for (const ch of chainInfos(x.note)) {
+      if (!decisionTypes.includes(ch.type)) continue
+      n++; if (new Set(x.reps.map(v => mergeWins(ch.span, x.note.spans, v, m))).size === 1) same++
+    }
+    return [m, { same, n }]
+  }))
+  // protocol の margin の格子（0.05 の次が 0）の間の点。結果を見て足したので、格子とは別に出す
+  ex.betweenMargins = Object.fromEntries([0.03, 0.02, 0.01].map(m => {
+    let same = 0, n = 0
+    for (const x of it.pooled) for (const ch of chainInfos(x.note)) {
+      if (!decisionTypes.includes(ch.type)) continue
+      n++; if (new Set(x.reps.map(v => mergeWins(ch.span, x.note.spans, v, m))).size === 1) same++
+    }
+    return [m, {
+      decision: Object.fromEntries(SET_NAMES.map(s => [s, chainDecision(it[s], m)])),
+      f1: Object.fromEntries(SET_NAMES.map(s => [s, tallySpans(it[s], fixed(recCap, m)).f1])),
+      vsRecommended: Object.fromEntries(SET_NAMES.map(s => [s, pairedDelta(it[s], fixed(recCap, m), fixed(recCap))])),
+      stable: { same, n },
+    }]
+  }))
+  const ev = R.merge.chains.filter(c => c.d !== null && decisionTypes.includes(c.label))
+  const aucD = es => { const P = es.filter(e => e.label === 'merged').map(e => e.d), N = es.filter(e => e.label === 'both').map(e => e.d); if (!P.length || !N.length) return null; let a = 0; for (const p of P) for (const n of N) a += p > n ? 1 : p === n ? 0.5 : 0; return a / (P.length * N.length) }
+  ex.dAucCi = Object.fromEntries(SET_NAMES.map(s => { const es = ev.filter(e => s === 'pooled' || e.set === s); return [s, { auc: aucD(es), ci: bootstrap(es, aucD), n: es.length }] }))
+  ex.alwaysMergeDecisionAccuracy = Object.fromEntries(SET_NAMES.map(s => { const es = ev.filter(e => s === 'pooled' || e.set === s); return [s, { ok: es.filter(e => e.label === 'merged').length, n: es.length }] }))
+  return R
+}
+
+export function renderB(R) {
+  const L = []
+  const h = s => L.push(`\n## ${s}\n`)
+  const SN = { old: '旧20件', heldout: '新20件（判断に使う）', pooled: '40件' }
+  const ci = o => o ? `${f3(o.auc)} [${f3(o.ci.lo)}, ${f3(o.ci.hi)}]` : '-'
+  const dd = o => `${f3(o.diff)} [${f3(o.ci.lo)}, ${f3(o.ci.hi)}]`
+  const rec = R.recommended
+  L.push(`# Jev 計測 B: 語と句の下線 (${R.meta.startedAt ?? ''})`, '', `records: ${R.records}, model: ${R.cost.models.join(', ')}, fixture sha256: ${R.meta.fixtureSha256 ?? '?'}, labelsSha256: ${R.meta.labelsSha256 ?? '?'}, questionSha256: ${R.meta.questionSha256 ?? '?'}`)
+  L.push('', `推奨（protocol の規則）: cap ${rec.cap}、t ${rec.t}、margin ${rec.margin}。cap ごとの heldout の strict F1（old で選んだ値）: ${Object.entries(rec.heldoutF1ByCap).map(([c, f]) => `cap${c} ${f2(f)}`).join('、')}`)
+
+  h('ラベル')
+  L.push(table(['set', '付箋', '語', 'spans', '句', 'underline 単位', 'うち句', 'unsure', '下線なしの付箋', 'cap3 超', 'cap4 超', 'cap5 超', '単位数の分布 (単位数:付箋数)', '再現率の上限 cap3/4/5'],
+    SET_NAMES.map(s => { const l = R.labels[s]; return [SN[s], l.notes, l.words, l.spans, l.mergedSpans, l.underlineUnits, l.underlineMergedUnits, l.unsure, l.notesWithoutUnderline, l.overCap[3], l.overCap[4], l.overCap[5], l.underlineHistogram.map(([k, v]) => `${k}:${v}`).join(' '), CAPS.map(c => pct(l.recallCeiling[c].rate)).join(' / ')] })))
+  L.push('', `2語の「AのB」の正解の種類（merged: 正解が句 / both: 両方の語 / one: 片方の語 / none: 無し）と 3語以上の列: ${SET_NAMES.map(s => `${SN[s]} ${JSON.stringify(R.labels[s].chainTypes)}`).join('、')}`)
+
+  h('ぶれ（B を同じ質問で3回）')
+  L.push(`質問 ${R.noise.n} 個。3回の幅: 中央値 ${f2(R.noise.p50)}、p95 ${f2(R.noise.p95)}、最大 ${f2(R.noise.max)}、幅 0 が ${R.noise.zero}、幅 0.1 以上が ${R.noise.ge010}。`)
+
+  h('AUC（B の値と正解の単位。付箋を再標本化した 95% 区間）')
+  L.push(table(['set', 'spans 全部 (spans 送信)', '語のみ (spans 送信)', '語のみ (parts 送信)', '句のみ', 'unsure=付ける', 'unsure=数えない'],
+    SET_NAMES.map(s => { const a = R.auc[s]; return [SN[s], ci(a.spans), ci(a.wordsInSpansRequest), ci(a.wordsInPartsRequest), ci(a.mergedOnly), f3(a.unsurePositive), f3(a.unsureDrop)] })))
+
+  h('cap と閾値・margin（old で選んだ値を、そのまま各 set に当てた strict の適合率 / 再現率 / F1。括弧は lenient の F1）')
+  for (const cap of CAPS) {
+    const T = R.tuned[cap]
+    L.push(`### cap ${cap}: 句あり (t ${T.mergeParams.t}, margin ${T.mergeParams.margin})、語だけ (t ${T.wordsParams.t})。heldout 自身で選び直すと 句あり t ${T.heldoutOwnMerge.t} margin ${T.heldoutOwnMerge.margin} F1 ${f2(T.heldoutOwnMerge.f1)}、語だけ t ${T.heldoutOwnWords.t} F1 ${f2(T.heldoutOwnWords.f1)}（標本内。参考）`, '')
+    L.push(table(['set', '句あり', '語だけ', '現行ルール rank', 'F1 の上限（完璧に選べたとき）'],
+      SET_NAMES.map(s => [SN[s], `${prfCell(T.merge[s].strict)} (${f2(T.merge[s].lenient.f1)})`, `${prfCell(T.words[s].strict)} (${f2(T.words[s].lenient.f1)})`, `${prfCell(T.rank[s].strict)} (${f2(T.rank[s].lenient.f1)})`, f2(T.f1Ceiling[s])])))
+    L.push('', `F1 の差（付箋を再標本化した 95% 区間。0 を含めば区別できない）: ` + ['old', 'heldout', 'pooled'].map(s => `${SN[s]}: 句あり-語だけ ${dd(T.mergeVsWords[s])}、句あり-rank(strict) ${dd(T.mergeVsRank[s].strict)}、句あり-rank(lenient) ${dd(T.mergeVsRank[s].lenient)}、語だけ-rank(strict) ${dd(T.wordsVsRank[s])}`).join('; '), '')
+  }
+  L.push('unsure の扱いを変えたときの F1（句あり。付けない側 / 数えない / 付ける側）:', '', table(['cap', ...SET_NAMES.map(s => SN[s])], CAPS.map(c => [c, ...SET_NAMES.map(s => `${f2(R.tuned[c].merge[s].strict.f1)} / ${f2(R.tuned[c].merge[s].drop.f1)} / ${f2(R.tuned[c].merge[s].positive.f1)}`)])))
+
+  h('句（margin ごと。推奨の cap・t で）')
+  L.push('判定 = 2語の句のうち、正解が「句」か「両方の語」のものについて、句が語に勝つかの正答率（t と cap に依らない）。end = 選択まで通して、その列の選択が正解と一致した数（種類ごと）。', '')
+  L.push(table(['margin', '判定 old', '判定 heldout', '判定 pooled', 'F1 old', 'F1 heldout', 'F1 pooled', 'end heldout (merged / both / one / none)'],
+    R.merge.byMargin.map(m => { const e = m.end.heldout, c = k => e[k] ? `${e[k].matched}/${e[k].total}` : '-'; return [m.margin, ...['old', 'heldout', 'pooled'].map(s => `${m.decision[s].ok}/${m.decision[s].n}`), ...['old', 'heldout', 'pooled'].map(s => f2(m.f1AtRecommended[s])), `${c('merged')} / ${c('both')} / ${c('one')} / ${c('none')}`] })))
+  const dm = R.merge.d
+  L.push('', `d = 句の値 - 部分の語の最大値（2語の句）。種類ごとの平均 [最小, 最大] (n)。merged と both を分けられるかの AUC: ${SET_NAMES.map(s => `${SN[s]} ${f3(dm[s].aucMergedVsBoth)}`).join('、')}`, '')
+  L.push(table(['set', 'merged（正解が句）', 'both（両方の語）', 'one（片方）', 'none'], SET_NAMES.map(s => [SN[s], ...['merged', 'both', 'one', 'none'].map(k => { const o = dm[s][k]; return o.n ? `${f2(o.mean)} [${f2(o.min)}, ${f2(o.max)}] (${o.n})` : '-' })])))
+  L.push('', '列ごとの結果（推奨の cap・t・margin。値は3回の平均）:', '')
+  L.push(table(['set', '付箋', '列', '正解の種類', '正解', '選択', '一致', 'd', '値'], R.merge.chains.map(c => [c.set, c.note, c.chain, c.label, c.goldIn.join(' / ') || '-', c.selected.join(' / ') || '-', c.matched ? 'o' : 'x', c.d === null ? '-' : f2(c.d), Object.entries(c.values).map(([k, v]) => `${k} ${f2(v)}`).join(', ')])))
+
+  h('安定性（3回の選択が同じか。推奨のパラメータ）')
+  for (const s of ['old', 'heldout']) {
+    const st = R.stability[s]
+    L.push(`- ${SN[s]}: 規則の選択が3回とも同じ ${st.rule.same}/${st.rule.notes}（平均 Jaccard ${f2(st.rule.meanJaccard)}）。閾値なしの上位 k が3回とも同じ: ${CAPS.map(k => `k=${k} ${st.topK[k].same}/${st.topK[k].notes}`).join('、')}`)
+  }
+
+  h('取りこぼしと誤りの理由（推奨のパラメータ、strict）')
+  L.push(table(['set', '正解', '当たり', '値が t 未満', '他の選択と重なる', 'cap で溢れた', '選択', '誤り: unsure', '誤り: 粒度違い', '誤り: 負'],
+    SET_NAMES.map(s => { const o = R.limiter[s]; return [SN[s], o.gold, o.hit, o.missBelowT, o.missOverlap, o.missCap, o.selected, o.fpUnsure, o.fpGranularity, o.fpNegative] })))
+
+  h('追加（結果を見たあとに足した記述統計。protocol の規則には入っていない）')
+  const ex = R.extra
+  L.push(`- 選択数 / 付箋（句あり、old で選んだ値）: ${CAPS.map(c => `cap${c} ${SET_NAMES.map(s => `${SN[s]} ${f2(ex.selectedPerNote[c][s])}`).join(' / ')}`).join('、')}。正解の単位 / 付箋: ${SET_NAMES.map(s => `${SN[s]} ${f2(ex.goldPerNote[s])}`).join(' / ')}`)
+  L.push(`- cap の比較（t ${rec.t}、margin ${rec.margin} に固定。F1 の差と 95% 区間）: ${['old', 'heldout', 'pooled'].map(s => `${SN[s]}: 4-3 ${dd(ex.capFixedParams[s]['4vs3'])}、5-4 ${dd(ex.capFixedParams[s]['5vs4'])}、5-3 ${dd(ex.capFixedParams[s]['5vs3'])}`).join('; ')}`)
+  L.push(`- cap の比較（cap ごとに old で選んだ値）: ${['old', 'heldout', 'pooled'].map(s => `${SN[s]}: 4-3 ${dd(ex.capTunedParams[s]['4vs3'])}、5-4 ${dd(ex.capTunedParams[s]['5vs4'])}、5-3 ${dd(ex.capTunedParams[s]['5vs3'])}`).join('; ')}`)
+  L.push(`- margin の比較（推奨 margin ${rec.margin} - 他の margin の F1 差と 95% 区間。cap ${rec.cap}、t ${rec.t}）:`)
+  for (const s of SET_NAMES) L.push(`  - ${SN[s]}: ${Object.entries(ex.marginVsRecommended[s]).map(([m, o]) => `margin ${m} ${dd(o)}`).join('、')}`)
+  L.push(`- 1回だけ送ったとき（出荷する形）の F1（周回ごと。推奨 / margin 0 / 語だけ。括弧は3回の平均を使った推奨の F1）: ${SET_NAMES.map(s => { const o = ex.singleShotF1[s]; const r = a => `${f2(Math.min(...a))}-${f2(Math.max(...a))}`; return `${SN[s]} ${r(o.recommended)} / ${r(o.margin0)} / ${r(o.wordsOnly)} (${f2(o.meanOfRepeatsRecommended)})` }).join('; ')}`)
+  L.push(`- 格子の間の margin（結果を見て足した点。cap ${rec.cap}、t ${rec.t}。F1 は old / heldout / pooled、差は推奨 margin ${rec.margin} との差の 95% 区間（pooled）、判定は pooled の列の正答率、安定は3回とも同じだった列）:`, '')
+  L.push(table(['margin', 'F1 old / heldout / pooled', '推奨との差 pooled', '判定 old / heldout / pooled', '判定が3回とも同じ'], Object.entries(ex.betweenMargins).map(([m, o]) => [m, SET_NAMES.map(s => f2(o.f1[s])).join(' / '), dd(o.vsRecommended.pooled), SET_NAMES.map(s => `${o.decision[s].ok}/${o.decision[s].n}`).join(' / '), `${o.stable.same}/${o.stable.n}`])), '')
+  L.push('- cap ごとの取りこぼし（cap ごとに old で選んだ値）。cap で溢れた = 値は t 以上なのに、cap に達していて選ばれなかった正解の単位:', '')
+  L.push(table(['cap', 'set', '正解', '当たり', '値が t 未満', '他の選択と重なる', 'cap で溢れた', 'cap に達した付箋'], CAPS.flatMap(c => ['heldout', 'pooled'].map(s => { const o = ex.limiterByCap[c][s]; return [c, SN[s], o.gold, o.hit, o.missBelowT, o.missOverlap, o.missCap, `${o.notesAtCap}/${R.labels[s].notes}`] }))), '')
+  const vd = ex.valueDist
+  L.push(`- B の値の分布（正解の単位 n=${vd.gold.n} / それ以外 n=${vd.nonGold.n}。unsure と、正解と重なる別の粒度の spans は除く）: 平均 ${f2(vd.gold.mean)} / ${f2(vd.nonGold.mean)}、p10 ${f2(vd.gold.p10)} / ${f2(vd.nonGold.p10)}、p50 ${f2(vd.gold.p50)} / ${f2(vd.nonGold.p50)}、p90 ${f2(vd.gold.p90)} / ${f2(vd.nonGold.p90)}。0.5 以上の割合 ${pct(vd.gold.ge50)} / ${pct(vd.nonGold.ge50)}、0.7 以上 ${pct(vd.gold.ge70)} / ${pct(vd.nonGold.ge70)}、0.8 以上 ${pct(vd.gold.ge80)} / ${pct(vd.nonGold.ge80)}`)
+  L.push(`- 句が語に勝つかの判定が3回とも同じ（40件、正解が句か両方の語の列 ${ex.decisionStability[0].n} 個）: margin 0 で ${ex.decisionStability[0].same} 個、margin 0.05 で ${ex.decisionStability[0.05].same} 個`)
+  L.push(`- d で「正解が句」と「正解が両方の語」を分ける AUC（列を再標本化した 95% 区間）: ${SET_NAMES.map(s => `${SN[s]} ${f3(ex.dAucCi[s].auc)} [${f3(ex.dAucCi[s].ci.lo)}, ${f3(ex.dAucCi[s].ci.hi)}] (n=${ex.dAucCi[s].n})`).join('、')}。「いつも句を選ぶ」の判定の正答率: ${SET_NAMES.map(s => `${SN[s]} ${ex.alwaysMergeDecisionAccuracy[s].ok}/${ex.alwaysMergeDecisionAccuracy[s].n}`).join('、')}`)
+
+  h('確認: 別のものを測っていないか')
+  const c = R.contamination
+  L.push(`- 句を足しても語の値が動かないか: parts 送信と spans 送信の、語の値の平均絶対差 ${f3(c.wordsMeanAbsDiffPartsVsSpans)}（n=${c.n}）。同じ送信の3回どうしの差は ${f3(c.wordsMeanAbsDiffBetweenRepeats)}。`)
+  L.push(`- 語だけを送った値で語だけの規則を当てた F1（推奨 cap）: ${SET_NAMES.map(s => `${SN[s]} ${f2(c.f1PartsRequestWordsOnly[s])}`).join('、')}`)
+  L.push(`- 並びを逆にして送ったとき（位置の偏り）: ${R.reverse.map(r => `${r.note} 平均差 ${f3(r.meanAbsDiff)} 最大差 ${f2(r.maxAbsDiff)} 選択${r.sameSelection ? '同じ' : '違う'}`).join('、') || '-'}`)
+  L.push(`- 失敗 ${R.failures.length} 件 ${JSON.stringify(R.failures)}、リトライした記録 ${R.retried} 件、答えが欠けた記録 ${R.missingAnswers} 件`)
+
+  h('kind と shape（spans 送信）')
+  const k = R.kindShape
+  L.push(`kind の分布（全 spans）: ${JSON.stringify(k.kindDist)}`, `kind の分布（正解の単位）: ${JSON.stringify(k.kindDistGold)}`, `kind が3回とも同じ: 全 ${k.kindUnanimous.all}/${k.kindUnanimous.of}、正解の単位 ${k.kindUnanimousGold.all}/${k.kindUnanimousGold.of}、句 ${k.kindUnanimousMerged.all}/${k.kindUnanimousMerged.of}。確信度 p50 ${f2(k.kindConfidence?.p50)} min ${f2(k.kindConfidence?.min)}`, `shape の分布: ${JSON.stringify(k.shapeDist)}、3回とも同じ ${k.shapeUnanimous.all}/${k.shapeUnanimous.of}`)
+
+  h('遅延と費用')
+  L.push(table(['phase', 'n', 'p50', 'mean', 'p95', 'max', '>1000 ms', '質問 p50 (max)', 'input tok p50 (max)'], R.latency.map(g => [g.phase, g.n, ms(g.p50), ms(g.mean), ms(g.p95), ms(g.max), g.over1000, `${g.questions.p50} (${g.questions.max})`, `${ms(g.inputTokens.p50)} (${ms(g.inputTokens.max)})`])))
+  if (R.latencyVsQuestions) L.push('', `spans 送信の遅延 ~ 質問数: ${f2(R.latencyVsQuestions.slope)} ms/質問、切片 ${ms(R.latencyVsQuestions.intercept)} ms、R2 ${f2(R.latencyVsQuestions.r2)}`)
+  L.push('', table(['phase', 'requests', 'input tok', 'USD'], R.cost.phases.map(p => [p.phase, p.requests, p.inputTokens, p.usd.toFixed(5)])), '', `合計 $${R.cost.totalUsd.toFixed(5)}。出荷する形（spans 送信）1リクエスト平均 $${(R.cost.perShipRequestUsd ?? 0).toFixed(6)}。`)
+
+  h('誕生日の付箋')
+  if (R.birthday) {
+    L.push(`推奨のパラメータでの下線: ${R.birthday.selected.join(' / ')}。語だけの規則（同じ cap・t）: ${R.birthday.selectedWordsOnly.join(' / ')}`, '', `margin を変えたとき（推奨の cap・t）: ${Object.entries(R.birthday.selectedByMargin).map(([m, xs]) => `margin ${m}: ${xs.join(' / ')}`).join('; ')}`, '', `cap と margin を変えたとき（t は推奨）: ${Object.entries(R.birthday.selectedByCapMargin).map(([k, xs]) => `${k}: ${xs.join(' / ')}`).join('; ')}`, '')
+    L.push(table(['span', '句', '正解', 'B 平均 [最小-最大]', '選択', '語だけの規則で選択', 'kind (votes)'], R.birthday.spans.map(s => [s.surface, s.merged ? 'yes' : '', s.label, `${f2(s.mean)} [${f2(s.min)}-${f2(s.max)}]`, s.selected ? 'o' : '', s.selectedWordsOnly ? 'o' : '', s.kind ? `${s.kind.choice} (${s.kind.votes}/${s.kind.of})` : '-'])))
+  }
+  return L.join('\n') + '\n'
+}
+
+function analyzeBCommand(opt) {
+  const fxPath = resolve(opt.fixture), out = resolve(opt.out)
+  const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+  const fx = loadFixture(fxPath)
+  if (meta.labelsSha256 !== labelsHash(fx)) throw new Error('ラベルが run のときと違う（labelsSha256 不一致）。結果を報告できない')
+  if (meta.questionSha256 !== questionHash()) throw new Error('B の問いの文言が run のときと違う（questionSha256 不一致）')
+  if (meta.fixtureSha256 !== sha256(fxPath)) console.error('警告: fixture のファイルが run のときと違う（sha256 不一致。ラベルと問いは一致）')
+  const R = analyzeB(fx, readJsonl(join(out, 'raw.jsonl')), meta)
+  writeFileSync(join(out, 'report-b.json'), JSON.stringify(R, null, 2))
+  writeFileSync(join(out, 'report-b.md'), renderB(R))
+  console.log(`wrote ${join(out, 'report-b.md')} and report-b.json`)
+}
+
 /* ============ preview / analyze ============ */
 function previewCommand(opt) {
   const fx = loadFixture(resolve(opt.fixture)), note = noteById(fx, opt.note)
@@ -830,6 +1374,79 @@ async function selftest() {
   assert.equal(good.accuracy.impact.bestT, 0.8, '同点なら高い閾値')
   assert.equal(good.kindShape.shapeDist['短い提案'], fx.notes.length)
   assert.ok(renderMarkdown(good).includes('誕生日の付箋'), 'レポートが描画できる')
+
+  // 句の候補（tools/spans.mjs）: 「の」（連体化）1トークンだけでつながる語を窓にする
+  const tk = (s, p = '名詞', d1 = '一般') => ({ s, p, d1 })
+  const no = tk('の', '助詞', '連体化')
+  const text3 = '父の還暦祝いの夕食と、乾杯の挨拶の原稿を決めてほしい'
+  const toks3 = [tk('父'), no, tk('還暦祝い'), no, tk('夕食'), tk('と', '助詞', '並立助詞'), tk('、', '記号', '読点'), tk('乾杯'), no, tk('挨拶'), no, tk('原稿'), tk('を', '助詞', '格助詞'), tk('決め', '動詞', '自立'), tk('て', '助詞', '接続助詞'), tk('ほしい', '形容詞', '自立')]
+  const at3 = s => text3.indexOf(s)
+  const cands3 = ['還暦祝い', '夕食', '乾杯', '挨拶', '原稿'].map(s => ({ surface: s, start: at3(s), end: at3(s) + s.length, kind: 'noun' }))
+  const sp3 = mergeSpans(text3, cands3, toks3)
+  assert.deepEqual(sp3.filter(s => s.merged).map(s => s.surface), ['還暦祝いの夕食', '乾杯の挨拶', '乾杯の挨拶の原稿', '挨拶の原稿'], '1語の名詞（父）は候補でないので句の頭にならない。「と、」を挟む語はつなげない。3語の列は窓を全部作る')
+  assert.deepEqual(sp3.filter(s => !s.merged).map(s => s.surface), cands3.map(c => c.surface), '語の候補は変えない')
+  assert.ok(sp3.every((s, i) => i === 0 || sp3[i - 1].start < s.start || (sp3[i - 1].start === s.start && sp3[i - 1].end <= s.end)), 'start 昇順、同じなら end 昇順')
+  assert.equal(mergeSpans('京都の宿', [{ surface: '京都', start: 0, end: 2, kind: 'proper' }], [tk('京都', '名詞', '固有名詞'), no, tk('宿')]).length, 1, '片方が候補でなければ句を作らない')
+  assert.deepEqual(chainsOf(sp3).map(c => [c.span.surface, c.parts.length, c.windows.length]), [['還暦祝いの夕食', 2, 1], ['乾杯の挨拶の原稿', 3, 3]])
+
+  // 選択: 句は、部分の語より margin を超えて高いときだけ選ばれる。語だけ（margin Infinity）なら句は使わない
+  const spA = [{ surface: '乾杯', start: 0, end: 2, merged: false }, { surface: '乾杯の挨拶', start: 0, end: 5, merged: true }, { surface: '挨拶', start: 3, end: 5, merged: false }, { surface: '献立', start: 8, end: 10, merged: false }]
+  const val = [0.9, 0.95, 0.85, 0.7]
+  const surfOf = ix => ix.map(i => spA[i].surface)
+  assert.deepEqual(surfOf(selectSpans(spA, val, { t: 0.5, cap: 5, margin: 0.04 })), ['乾杯の挨拶', '献立'], '0.05 差は margin 0.04 を超える')
+  assert.deepEqual(surfOf(selectSpans(spA, val, { t: 0.5, cap: 5, margin: 0.06 })), ['乾杯', '挨拶', '献立'], '0.05 差は margin 0.06 に届かない')
+  assert.deepEqual(surfOf(selectSpans(spA, val, { t: 0.5, cap: 5, margin: Infinity })), ['乾杯', '挨拶', '献立'], '句を使わない')
+  assert.deepEqual(surfOf(selectSpans(spA, val, { t: 0.5, cap: 2, margin: 0.04 })), ['乾杯の挨拶', '献立'], '句は1枠')
+  assert.deepEqual(surfOf(selectSpans(spA, val, { t: 0.5, cap: 2, margin: Infinity })), ['乾杯', '挨拶'], '語は2枠。cap で献立が溢れる')
+  assert.deepEqual(surfOf(selectSpans(spA, val, { t: 0.8, cap: 5, margin: 0.04 })), ['乾杯の挨拶'], '閾値は実際の値に掛ける')
+  assert.equal(mergeWins(spA[1], spA, val, 0.04), true); assert.equal(mergeWins(spA[1], spA, val, 0.06), false)
+
+  // 採点: 句が正解のとき、語2つを選ぶと strict では外れ、lenient では当たり。正解の句と重なる語・句は AUC から除く
+  const nA = { id: 'x', spans: spA, underline: ['乾杯の挨拶'], unsure: [], candidates: [], baselineRank: ['乾杯', '挨拶', '献立'] }
+  const itA = { note: nA, v: [0.99, 0.5, 0.99, 0.1] }
+  const strict = tallySpans([itA], () => [0, 2]), lenient = tallySpans([itA], () => [0, 2], { lenient: true })
+  assert.deepEqual([strict.tp, strict.fp, strict.fn], [0, 2, 1]); assert.deepEqual([lenient.tp, lenient.fp, lenient.fn], [2, 0, 0])
+  approx(aucSpans([itA]), 1, '重なる spans は AUC から除く')
+  assert.deepEqual([...goldOf(nA).overlapOnly].sort(), [0, 2])
+  const chA = chainInfos(nA); assert.equal(chA.length, 1); assert.equal(chA[0].type, 'merged')
+  assert.deepEqual(chainDecision([itA], 0.1), { n: 1, ok: 0, rate: 0 }, '句の値 0.5 は語に勝てない')
+
+  // 問いの例の語は、40件のどの付箋にも含まれない（正解に見える語を問いに書かない）
+  const fxB = loadFixture(join(HERE, 'jev-notes-b.json'))
+  for (const w of ASSUME_EXAMPLES) for (const n of fxB.notes) assert.ok(!n.text.includes(w), `問いの例「${w}」が付箋 ${n.id} に含まれる`)
+  assert.equal(fxB.protocol.labelsSha256, labelsHash(fxB), 'ラベルが protocol.labelsSha256 と違う')
+  if (fxB.protocol.questionSha256) assert.equal(fxB.protocol.questionSha256, questionHash(), '問いの文言が protocol.questionSha256 と違う')
+  for (const n of fxB.notes) {
+    assert.equal(new Set(n.spans.map(s => s.surface)).size, n.spans.length, `${n.id}: spans の表記が重複`)
+    const rq = buildRequest(n, 'spans'), rp = buildRequest(n, 'parts')
+    assert.deepEqual(rq.surfaces, n.spans.map(s => s.surface)); assert.deepEqual(rp.surfaces, n.candidates.map(c => c.surface))
+    assert.equal(Object.keys(rq.body.questions).length, 2 * n.spans.length + 1)
+  }
+  assert.equal(fxB.notes.filter(n => n.set === 'old').length, 20); assert.equal(fxB.notes.filter(n => n.set === 'heldout').length, 20)
+
+  // 分析の通し（B）: 正解の単位に高い値を返す偽の Jev なら、AUC が 1、正解が句の列は margin 0 で句が勝つ
+  const fakeB = (oracle) => {
+    const recs = []
+    for (const phase of ['b', 'bparts']) for (const note of fxB.notes) for (let r = 1; r <= 3; r++) {
+      const list = phase === 'b' ? note.spans : note.spans.filter(s => !s.merged)
+      const answers = {}
+      list.forEach((s, i) => {
+        const hi = note.underline.includes(s.surface) === oracle
+        answers[`assume_${i}`] = { type: 'noul', noul: hi ? 0.9 : 0.1 }
+        answers[`kind_${i}`] = { type: 'choice', choice: '場所', confidence: 0.9, probabilities: {} }
+      })
+      answers.shape = { type: 'choice', choice: '短い提案', confidence: 0.9, probabilities: {} }
+      recs.push({ id: `${phase}${note.id}${r}`, phase, variant: phase === 'b' ? 'spans' : 'parts', noteId: note.id, repeat: r, extra: '', candidates: list.map(s => s.surface), ok: true, answers, latencyMs: 100 + r, questions: Object.keys(answers).length, usage: { input_tokens: 100, output_tokens: 10 }, model: 'jev-fake', requestBytes: 1000, retries: [] })
+    }
+    return recs
+  }
+  const gB = analyzeB(fxB, fakeB(true), { startedAt: 'selftest' }), bB = analyzeB(fxB, fakeB(false))
+  approx(gB.auc.pooled.spans.auc, 1, 'oracle auc (B)'); approx(bB.auc.pooled.spans.auc, 0, 'anti-oracle auc (B)')
+  approx(gB.tuned[5].merge.old.strict.f1, 1, 'oracle strict f1')
+  const m0 = gB.merge.byMargin.find(m => m.margin === 0).decision.pooled; assert.ok(m0.n > 10 && m0.ok === m0.n, '句の判定が全て正しい')
+  assert.equal(gB.merge.byMargin.find(m => m.margin === 'inf').decision.pooled.ok, gB.merge.chains.filter(c => c.label === 'both').length, '句を使わないなら、正解が両方の語の列だけ正しい')
+  assert.ok(gB.labels.heldout.overCap[3] >= 1, '上限3を超える付箋がある')
+  assert.ok(renderB(gB).includes('誕生日の付箋'), 'B のレポートが描画できる')
   console.log('selftest ok')
 }
 
@@ -846,7 +1463,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   })
   if (cmd === 'run') await runCommand(opt)
   else if (cmd === 'analyze') analyzeCommand(opt)
+  else if (cmd === 'analyze-b') analyzeBCommand(opt)
   else if (cmd === 'preview') previewCommand(opt)
   else if (cmd === 'selftest') await selftest()
-  else { console.error('usage: measure-jev.mjs run|analyze|preview|selftest (ヘッダのコメントを参照)'); process.exitCode = 2 }
+  else { console.error('usage: measure-jev.mjs run|analyze|analyze-b|preview|selftest (ヘッダのコメントを参照)'); process.exitCode = 2 }
 }

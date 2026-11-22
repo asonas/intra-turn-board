@@ -1,0 +1,1138 @@
+{
+  "_comment": "Issue #1 ステップ1の続き。ユーザーが決めた基準 B で付箋 40 件（旧 20 件 + 新 20 件）に下線を付け直し、「の」でつないだ句を1単位にできるかと、上限を測る。underline / unsure / reason は計測した側 (AI) の提案で、ユーザーが見直す前提。Jev に B の問いを送る前に確定した（protocol.labelsSha256）。candidates / spans / baselineTop3 / baselineRank / source は tools/extract-jev-candidates.mjs が board.html と tools/spans.mjs から書く。v1Underline / v1Unsure は run1（tools/jev-notes.json）のラベルで、参照用。",
+  "labelRule": "基準 B（ユーザーが決めた）。付箋に書かれた語（または句）のうち、AI が進めるのに、その語について付箋に書かれていない属性・条件（人数・年齢・地域・日時・予算・対象・調子・長さ・形式・ジャンルなど）を置く必要があり、置き方しだいで成果物が変わるものに underline を付ける。必要な属性が文面にすでに書かれている語、置き方で成果物が変わらない語、依頼の前置きや言い回しには付けない。underline は重ならない単位の集合で、単位は語か、「の」でつないだ句。句を1単位にするのは、後ろの語が成果物や情報の型（挨拶・原稿・手順・構成・文面・テーマ・比較など）で、前の語がその種類や題材を指すだけのとき（例: 乾杯の挨拶）と、二語で一人・一つの指す先を成すとき（例: 小学生の息子）。前の語が人・場所・物として固有の未決の属性を持つとき（例: 京都の旅館、家計簿アプリの機能）は、句にせず語ごとに付ける。上限は設けない。どちらとも言い切れない語・句は unsure に入れ、主な集計では付けない側に数える。",
+  "protocol": {
+    "decidedBeforeRunning": true,
+    "sets": {
+      "old": "旧20件（run1 と同じ付箋）。基準 B の文言とラベルは run1 の結果を見たあとに書いたので、数字は楽観的に出る。t と margin の調整に使う。",
+      "heldout": "新20件。本文とラベルを、B の問いを Jev に送る前に確定した。判断に使う数字はこちら。ただし本文もラベルも、run1 の結果を知っている AI（計測した側）が書いたので、完全に独立ではない。"
+    },
+    "question": "B（質問名 assume）。付箋にある語（または句）について、付箋に書かれていない属性・条件を AI が置く必要があり、その置き方しだいで成果物が大きく変わるか（noul）。語にも句にも同じ文言を送る。run1 の impact2 とは文言が違う: impact2 は false の例に「人名や地名のように指す先が一つに決まっている語」を挙げ、ユーザーの「日本 → 地域」と合わないため。問いの例に使う語（海外・弁当・論文・30分・お願いします）は、40件のどの付箋にも含まれない（selftest で確かめる）。run1 の 0.85 とは直接比べられない。",
+    "request": "付箋1件につき1リクエスト（出荷する形）。state.candidates は spans（語と句。start 昇順、同じなら end 昇順）。質問は assume と kind を spans の全てに、shape を1つ。各3回。あわせて、語だけを送る parts（句が語の値に影響しないかの確認）と、spans の並びを逆にした brev（6件。位置の偏りの確認）を送る。",
+    "spans": "extractCandidates の語に、「の」（助詞・連体化）1トークンだけでつながる隣の語の連続窓（2語以上、最大4語）を、tools/spans.mjs の mergeSpans で足す。",
+    "selection": "値は3回の平均。句は有効値（値 - margin）で語と競い、有効値の大きい順に、重ならないものを選ぶ。選ばれるには実際の値が t 以上で、数は cap まで。同じ有効値なら語を先にする。margin が大きいほど句は選ばれにくい。",
+    "scoring": "正解は重ならない単位の集合（underline）。主な指標は、選んだ単位が正解の単位と表記・位置まで一致する strict の適合率・再現率・F1（unsure は付けない側）。補助に、重なれば当たりとする lenient を出す。現行ルール rank（種類と出現順）も同じ cap で strict と lenient の両方で採点する（rank は句を作れないので strict だけだと句に不利なため）。AUC は spans の全てについて、正解の単位を正例、どの正解の単位とも重ならない spans を負例とし、正解の単位と重なるが同じではない spans（正解の句の部分の語、正解の語を含む句）は除く。信頼区間は付箋を再標本化したブートストラップ（2000回、95%）。",
+    "tuning": "t は 0.3〜0.8（0.1 刻み）、margin は ∞（句を使わない）, 0.3, 0.2, 0.15, 0.1, 0.05, 0, -0.1。cap（3, 4, 5）ごとに、old の strict F1 が最大の (t, margin) を採る。0.02 以内で並ぶなら、適合率が高い方、次に句の判定の正答率が高い方、次に t が高い方、次に margin が小さい方（句にまとめる側）を採る。語だけの規則（margin = ∞）は、同じ規則で t を別に選ぶ。heldout の数字は old で選んだ値のまま出す。heldout で選び直した値は、参考（標本内）として別に出す。",
+    "cap": "heldout の strict F1（old で選んだ値）が最大の cap から 0.02 以内で、最も小さい cap を推す。あわせて、正解の単位が cap を超える付箋の数と、再現率の上限（付箋ごとに min(cap, 正解の数) の合計 / 正解の合計）を出す。",
+    "merge": "句の判定は、2語の句のうち正解が「句」か「両方の語」のものだけを数える。t と cap に依らず、句が全ての部分の語を margin を超える差で上回るかだけを見る（tools/spans.mjs の mergeWins）。あわせて、選択まで通した結果が正解と一致するかを句の種類（正解が句 / 両方の語 / 片方の語 / 無し）ごとに出す。",
+    "noise": "B の3回の幅（最大 - 最小）の中央値が 0.1 を超える、または 0.05 刻みの margin どうしで結果が入れ替わるなら、その差は誤差として並んだものと報告する。",
+    "questionSha256": "8f2e573a493b71187f536f9fce842c8b24622da671700aa49ec0af11388fb4b5",
+    "labelsSha256": "82efcfa675c7d9a8fa44a8ffa49b619b731c347858f35ae2204e7c3819223e0c"
+  },
+  "source": {
+    "board": ".agents/skills/intra-turn-board/board.html",
+    "gitHead": "8d62c3dff9548bd793f1ccb34c28301fc0a34aa0",
+    "boardBlob": "223ed4836eaff7d06224fbc1cd4aca0ad392e669",
+    "kuromoji": "kuromoji@0.1.2",
+    "extractedAt": "2026-11-22T04:54:07.119Z"
+  },
+  "notes": [
+    {
+      "id": "travel-kyoto",
+      "set": "old",
+      "tag": "example/travel",
+      "text": "週末に家族で京都旅行の計画を立てたい",
+      "underline": ["家族","京都旅行"],
+      "unsure": ["計画"],
+      "v1Underline": ["家族","京都旅行"],
+      "v1Unsure": ["計画"],
+      "baselineTop3": ["京都旅行","家族","計画"],
+      "baselineRank": ["京都旅行","家族","計画"],
+      "reason": "家族は人数と年齢、京都旅行は日数と関心が書かれていない。京都旅行は固有の問いを持つので、計画とつなげない。計画は詳しさ（shape の領分）で境界。",
+      "candidates": [
+        {"surface":"家族","start":3,"end":5,"kind":"noun"},
+        {"surface":"京都旅行","start":6,"end":10,"kind":"proper"},
+        {"surface":"計画","start":11,"end":13,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"家族","start":3,"end":5,"kind":"noun","merged":false},
+        {"surface":"京都旅行","start":6,"end":10,"kind":"proper","merged":false},
+        {"surface":"京都旅行の計画","start":6,"end":13,"kind":"phrase","merged":true,"parts":["京都旅行","計画"]},
+        {"surface":"計画","start":11,"end":13,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "birthday",
+      "set": "old",
+      "tag": "example/events",
+      "text": "父の還暦祝いの夕食を家で開きたい。献立と買い物リストと、乾杯の挨拶を考えて。カードの文面みたいではなく、自分らしい言葉で。",
+      "underline": ["献立","乾杯の挨拶"],
+      "unsure": ["買い物リスト","夕食","言葉"],
+      "v1Underline": ["献立","乾杯","挨拶"],
+      "v1Unsure": ["買い物リスト","言葉"],
+      "baselineTop3": ["還暦祝い","買い物リスト","夕食"],
+      "baselineRank": ["還暦祝い","買い物リスト","夕食","献立","乾杯","挨拶","カード","文面","自分","言葉"],
+      "reason": "献立は品数とジャンル、乾杯の挨拶は長さと調子が書かれていない（挨拶は乾杯の種類を指すだけなので1単位）。買い物リストは献立から決まる。夕食は人数が書かれていないが境界。言葉は「自分らしい」の中身だが挨拶に含まれる。",
+      "candidates": [
+        {"surface":"還暦祝い","start":2,"end":6,"kind":"compound"},
+        {"surface":"夕食","start":7,"end":9,"kind":"noun"},
+        {"surface":"献立","start":17,"end":19,"kind":"noun"},
+        {"surface":"買い物リスト","start":20,"end":26,"kind":"compound"},
+        {"surface":"乾杯","start":28,"end":30,"kind":"noun"},
+        {"surface":"挨拶","start":31,"end":33,"kind":"noun"},
+        {"surface":"カード","start":38,"end":41,"kind":"noun"},
+        {"surface":"文面","start":42,"end":44,"kind":"noun"},
+        {"surface":"自分","start":52,"end":54,"kind":"noun"},
+        {"surface":"言葉","start":57,"end":59,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"還暦祝い","start":2,"end":6,"kind":"compound","merged":false},
+        {"surface":"還暦祝いの夕食","start":2,"end":9,"kind":"phrase","merged":true,"parts":["還暦祝い","夕食"]},
+        {"surface":"夕食","start":7,"end":9,"kind":"noun","merged":false},
+        {"surface":"献立","start":17,"end":19,"kind":"noun","merged":false},
+        {"surface":"買い物リスト","start":20,"end":26,"kind":"compound","merged":false},
+        {"surface":"乾杯","start":28,"end":30,"kind":"noun","merged":false},
+        {"surface":"乾杯の挨拶","start":28,"end":33,"kind":"phrase","merged":true,"parts":["乾杯","挨拶"]},
+        {"surface":"挨拶","start":31,"end":33,"kind":"noun","merged":false},
+        {"surface":"カード","start":38,"end":41,"kind":"noun","merged":false},
+        {"surface":"カードの文面","start":38,"end":44,"kind":"phrase","merged":true,"parts":["カード","文面"]},
+        {"surface":"文面","start":42,"end":44,"kind":"noun","merged":false},
+        {"surface":"自分","start":52,"end":54,"kind":"noun","merged":false},
+        {"surface":"言葉","start":57,"end":59,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "poster",
+      "set": "old",
+      "tag": "example/design",
+      "text": "勉強会の告知ポスターを2案つくりたい。すっきりしていて差し色があり、タイトルが目立つもの",
+      "underline": ["勉強会","告知ポスター","差し色"],
+      "unsure": ["2案","タイトル"],
+      "v1Underline": ["勉強会","2案","差し色"],
+      "v1Unsure": ["告知ポスター","タイトル"],
+      "baselineTop3": ["告知ポスター","勉強会","2案"],
+      "baselineRank": ["告知ポスター","勉強会","2案","差し色","タイトル"],
+      "reason": "勉強会は題材と日時、ポスターは大きさと載せる情報、差し色は色が書かれていない。勉強会と告知ポスターは別々の問いなので句にしない。2案は数が書かれているが違いの軸が未定で境界。",
+      "candidates": [
+        {"surface":"勉強会","start":0,"end":3,"kind":"noun"},
+        {"surface":"告知ポスター","start":4,"end":10,"kind":"compound"},
+        {"surface":"2案","start":11,"end":13,"kind":"noun"},
+        {"surface":"差し色","start":27,"end":30,"kind":"noun"},
+        {"surface":"タイトル","start":34,"end":38,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"勉強会","start":0,"end":3,"kind":"noun","merged":false},
+        {"surface":"勉強会の告知ポスター","start":0,"end":10,"kind":"phrase","merged":true,"parts":["勉強会","告知ポスター"]},
+        {"surface":"告知ポスター","start":4,"end":10,"kind":"compound","merged":false},
+        {"surface":"2案","start":11,"end":13,"kind":"noun","merged":false},
+        {"surface":"差し色","start":27,"end":30,"kind":"noun","merged":false},
+        {"surface":"タイトル","start":34,"end":38,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "naming-app",
+      "set": "old",
+      "tag": "example/naming",
+      "text": "アプリの名前を考えたい",
+      "underline": ["アプリ","名前"],
+      "unsure": [],
+      "v1Underline": ["アプリ"],
+      "v1Unsure": ["名前"],
+      "baselineTop3": ["アプリ","名前"],
+      "baselineRank": ["アプリ","名前"],
+      "reason": "アプリは種類、名前は数と方向性が書かれていない。別々の問いなので句にしない。",
+      "candidates": [
+        {"surface":"アプリ","start":0,"end":3,"kind":"noun"},
+        {"surface":"名前","start":4,"end":6,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"アプリ","start":0,"end":3,"kind":"noun","merged":false},
+        {"surface":"アプリの名前","start":0,"end":6,"kind":"phrase","merged":true,"parts":["アプリ","名前"]},
+        {"surface":"名前","start":4,"end":6,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "farewell-party",
+      "set": "old",
+      "tag": "events",
+      "text": "来月のチームの歓送迎会の店を決めて、案内メールの文面も作って",
+      "underline": ["チーム","歓送迎会","案内メールの文面"],
+      "unsure": [],
+      "v1Underline": ["チーム","歓送迎会"],
+      "v1Unsure": ["案内メール","文面"],
+      "baselineTop3": ["歓送迎会","案内メール","チーム"],
+      "baselineRank": ["歓送迎会","案内メール","チーム","文面"],
+      "reason": "チームは人数、歓送迎会は予算と形式が書かれていない。案内メールは文面の型を指すだけなので、案内メールの文面を1単位（調子と長さ）にする。",
+      "candidates": [
+        {"surface":"チーム","start":3,"end":6,"kind":"noun"},
+        {"surface":"歓送迎会","start":7,"end":11,"kind":"proper"},
+        {"surface":"案内メール","start":18,"end":23,"kind":"compound"},
+        {"surface":"文面","start":24,"end":26,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"チーム","start":3,"end":6,"kind":"noun","merged":false},
+        {"surface":"チームの歓送迎会","start":3,"end":11,"kind":"phrase","merged":true,"parts":["チーム","歓送迎会"]},
+        {"surface":"歓送迎会","start":7,"end":11,"kind":"proper","merged":false},
+        {"surface":"案内メール","start":18,"end":23,"kind":"compound","merged":false},
+        {"surface":"案内メールの文面","start":18,"end":26,"kind":"phrase","merged":true,"parts":["案内メール","文面"]},
+        {"surface":"文面","start":24,"end":26,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "wedding-speech",
+      "set": "old",
+      "tag": "writing",
+      "text": "友人の結婚式で読むスピーチの原稿を書きたい",
+      "underline": ["友人","スピーチの原稿"],
+      "unsure": ["結婚式"],
+      "v1Underline": ["友人","スピーチ"],
+      "v1Unsure": ["結婚式"],
+      "baselineTop3": ["友人","結婚式","スピーチ"],
+      "baselineRank": ["友人","結婚式","スピーチ","原稿"],
+      "reason": "友人は親しさ、スピーチの原稿は長さと調子が書かれていない。結婚式の格式は調子に響くが境界。",
+      "candidates": [
+        {"surface":"友人","start":0,"end":2,"kind":"noun"},
+        {"surface":"結婚式","start":3,"end":6,"kind":"noun"},
+        {"surface":"スピーチ","start":9,"end":13,"kind":"noun"},
+        {"surface":"原稿","start":14,"end":16,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"友人","start":0,"end":2,"kind":"noun","merged":false},
+        {"surface":"友人の結婚式","start":0,"end":6,"kind":"phrase","merged":true,"parts":["友人","結婚式"]},
+        {"surface":"結婚式","start":3,"end":6,"kind":"noun","merged":false},
+        {"surface":"スピーチ","start":9,"end":13,"kind":"noun","merged":false},
+        {"surface":"スピーチの原稿","start":9,"end":16,"kind":"phrase","merged":true,"parts":["スピーチ","原稿"]},
+        {"surface":"原稿","start":14,"end":16,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "science-project",
+      "set": "old",
+      "tag": "education",
+      "text": "小学生の息子の夏休みの自由研究のテーマを考えたい",
+      "underline": ["小学生の息子","研究のテーマ"],
+      "unsure": ["夏休み"],
+      "v1Underline": ["小学生","研究"],
+      "v1Unsure": ["息子","夏休み"],
+      "baselineTop3": ["小学生","息子","夏休み"],
+      "baselineRank": ["小学生","息子","夏休み","研究","テーマ"],
+      "reason": "小学生の息子は学年と関心を一人の人として聞く1単位。研究のテーマは分野と難しさ。夏休みは期間だが影響は小さい。",
+      "candidates": [
+        {"surface":"小学生","start":0,"end":3,"kind":"noun"},
+        {"surface":"息子","start":4,"end":6,"kind":"noun"},
+        {"surface":"夏休み","start":7,"end":10,"kind":"noun"},
+        {"surface":"研究","start":13,"end":15,"kind":"noun"},
+        {"surface":"テーマ","start":16,"end":19,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"小学生","start":0,"end":3,"kind":"noun","merged":false},
+        {"surface":"小学生の息子","start":0,"end":6,"kind":"phrase","merged":true,"parts":["小学生","息子"]},
+        {"surface":"小学生の息子の夏休み","start":0,"end":10,"kind":"phrase","merged":true,"parts":["小学生","息子","夏休み"]},
+        {"surface":"息子","start":4,"end":6,"kind":"noun","merged":false},
+        {"surface":"息子の夏休み","start":4,"end":10,"kind":"phrase","merged":true,"parts":["息子","夏休み"]},
+        {"surface":"夏休み","start":7,"end":10,"kind":"noun","merged":false},
+        {"surface":"研究","start":13,"end":15,"kind":"noun","merged":false},
+        {"surface":"研究のテーマ","start":13,"end":19,"kind":"phrase","merged":true,"parts":["研究","テーマ"]},
+        {"surface":"テーマ","start":16,"end":19,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "budget-app",
+      "set": "old",
+      "tag": "product",
+      "text": "新しい家計簿アプリの機能を決めたい。レシート読み取りと予算アラートで迷っている",
+      "underline": ["家計簿アプリ","機能"],
+      "unsure": ["レシート読み取り","予算アラート"],
+      "v1Underline": ["家計簿アプリ"],
+      "v1Unsure": ["レシート読み取り","予算アラート"],
+      "baselineTop3": ["家計簿アプリ","レシート読み取り","予算アラート"],
+      "baselineRank": ["家計簿アプリ","レシート読み取り","予算アラート","機能"],
+      "reason": "家計簿アプリは対象者と端末、機能は範囲と数が書かれていない。別々の問いなので句にしない。二つの案は決め方が書かれていないが境界。",
+      "candidates": [
+        {"surface":"家計簿アプリ","start":3,"end":9,"kind":"compound"},
+        {"surface":"機能","start":10,"end":12,"kind":"noun"},
+        {"surface":"レシート読み取り","start":18,"end":26,"kind":"compound"},
+        {"surface":"予算アラート","start":27,"end":33,"kind":"compound"}
+      ],
+      "spans": [
+        {"surface":"家計簿アプリ","start":3,"end":9,"kind":"compound","merged":false},
+        {"surface":"家計簿アプリの機能","start":3,"end":12,"kind":"phrase","merged":true,"parts":["家計簿アプリ","機能"]},
+        {"surface":"機能","start":10,"end":12,"kind":"noun","merged":false},
+        {"surface":"レシート読み取り","start":18,"end":26,"kind":"compound","merged":false},
+        {"surface":"予算アラート","start":27,"end":33,"kind":"compound","merged":false}
+      ]
+    },
+    {
+      "id": "hokkaido-trip",
+      "set": "old",
+      "tag": "travel",
+      "text": "来週の北海道出張の宿と移動手段を手配したい",
+      "underline": ["北海道出張","移動手段"],
+      "unsure": ["手配"],
+      "v1Underline": ["北海道出張","移動手段"],
+      "v1Unsure": ["手配"],
+      "baselineTop3": ["北海道出張","移動手段","手配"],
+      "baselineRank": ["北海道出張","移動手段","手配"],
+      "reason": "北海道出張は都市と日程、移動手段は出発地と好みが書かれていない。手配は提案か予約かで境界。",
+      "candidates": [
+        {"surface":"北海道出張","start":3,"end":8,"kind":"proper"},
+        {"surface":"移動手段","start":11,"end":15,"kind":"compound"},
+        {"surface":"手配","start":16,"end":18,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"北海道出張","start":3,"end":8,"kind":"proper","merged":false},
+        {"surface":"移動手段","start":11,"end":15,"kind":"compound","merged":false},
+        {"surface":"手配","start":16,"end":18,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "blog-title",
+      "set": "old",
+      "tag": "naming",
+      "text": "ブログ記事のタイトルを5つ考えて",
+      "underline": ["ブログ記事"],
+      "unsure": ["タイトル"],
+      "v1Underline": ["ブログ記事"],
+      "v1Unsure": ["タイトル"],
+      "baselineTop3": ["ブログ記事","タイトル"],
+      "baselineRank": ["ブログ記事","タイトル"],
+      "reason": "ブログ記事は題材と調子が書かれていない。タイトルは数が5つと書かれ、文体は未定だが境界。ブログ記事は固有の問いを持つので句にしない。",
+      "candidates": [
+        {"surface":"ブログ記事","start":0,"end":5,"kind":"compound"},
+        {"surface":"タイトル","start":6,"end":10,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"ブログ記事","start":0,"end":5,"kind":"compound","merged":false},
+        {"surface":"ブログ記事のタイトル","start":0,"end":10,"kind":"phrase","merged":true,"parts":["ブログ記事","タイトル"]},
+        {"surface":"タイトル","start":6,"end":10,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "login-error",
+      "set": "old",
+      "tag": "code/design",
+      "text": "ログイン画面のエラー表示を見直したい。パスワードを間違えたときの文言が冷たい気がする",
+      "underline": ["文言"],
+      "unsure": ["ログイン画面のエラー表示"],
+      "v1Underline": ["文言"],
+      "v1Unsure": ["エラー表示"],
+      "baselineTop3": ["ログイン画面","エラー表示","パスワード"],
+      "baselineRank": ["ログイン画面","エラー表示","パスワード","文言"],
+      "reason": "文言は「冷たい」の基準（調子）が書かれていない。エラー表示は見直しの対象で、書かれていない属性が少なく境界。",
+      "candidates": [
+        {"surface":"ログイン画面","start":0,"end":6,"kind":"compound"},
+        {"surface":"エラー表示","start":7,"end":12,"kind":"compound"},
+        {"surface":"パスワード","start":19,"end":24,"kind":"noun"},
+        {"surface":"文言","start":32,"end":34,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"ログイン画面","start":0,"end":6,"kind":"compound","merged":false},
+        {"surface":"ログイン画面のエラー表示","start":0,"end":12,"kind":"phrase","merged":true,"parts":["ログイン画面","エラー表示"]},
+        {"surface":"エラー表示","start":7,"end":12,"kind":"compound","merged":false},
+        {"surface":"パスワード","start":19,"end":24,"kind":"noun","merged":false},
+        {"surface":"文言","start":32,"end":34,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "react-ts",
+      "set": "old",
+      "tag": "code",
+      "text": "ReactのコンポーネントをTypeScriptに書き換えて",
+      "underline": [],
+      "unsure": ["コンポーネント","TypeScript"],
+      "v1Underline": [],
+      "v1Unsure": ["コンポーネント","TypeScript"],
+      "baselineTop3": ["React","コンポーネント","TypeScript"],
+      "baselineRank": ["React","コンポーネント","TypeScript"],
+      "reason": "どれも置く前提が小さく、成果物は変わりにくい。コードそのものが無いのは前提の置き方ではなく入力の欠落。",
+      "candidates": [
+        {"surface":"React","start":0,"end":5,"kind":"proper"},
+        {"surface":"コンポーネント","start":6,"end":13,"kind":"noun"},
+        {"surface":"TypeScript","start":14,"end":24,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"React","start":0,"end":5,"kind":"proper","merged":false},
+        {"surface":"Reactのコンポーネント","start":0,"end":13,"kind":"phrase","merged":true,"parts":["React","コンポーネント"]},
+        {"surface":"コンポーネント","start":6,"end":13,"kind":"noun","merged":false},
+        {"surface":"TypeScript","start":14,"end":24,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "study-talk",
+      "set": "old",
+      "tag": "writing",
+      "text": "社内勉強会で発表したい。テーマはキャッシュの設計で、資料の構成と最初のスライドの文言を考えてほしい",
+      "underline": ["社内勉強会","キャッシュの設計","資料の構成","最初のスライドの文言"],
+      "unsure": ["発表"],
+      "v1Underline": ["社内勉強会","発表","キャッシュ"],
+      "v1Unsure": ["資料","構成","文言"],
+      "baselineTop3": ["社内勉強会","発表","テーマ"],
+      "baselineRank": ["社内勉強会","発表","テーマ","キャッシュ","設計","資料","構成","最初","スライド","文言"],
+      "reason": "社内勉強会は聞き手の水準と時間、キャッシュの設計は深さと範囲、資料の構成は枚数と流れ、最初のスライドの文言は調子と長さが書かれていない。それぞれ成果物の型を指す語が後ろなので句を1単位にする。",
+      "candidates": [
+        {"surface":"社内勉強会","start":0,"end":5,"kind":"compound"},
+        {"surface":"発表","start":6,"end":8,"kind":"noun"},
+        {"surface":"テーマ","start":12,"end":15,"kind":"noun"},
+        {"surface":"キャッシュ","start":16,"end":21,"kind":"noun"},
+        {"surface":"設計","start":22,"end":24,"kind":"noun"},
+        {"surface":"資料","start":26,"end":28,"kind":"noun"},
+        {"surface":"構成","start":29,"end":31,"kind":"noun"},
+        {"surface":"最初","start":32,"end":34,"kind":"noun"},
+        {"surface":"スライド","start":35,"end":39,"kind":"noun"},
+        {"surface":"文言","start":40,"end":42,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"社内勉強会","start":0,"end":5,"kind":"compound","merged":false},
+        {"surface":"発表","start":6,"end":8,"kind":"noun","merged":false},
+        {"surface":"テーマ","start":12,"end":15,"kind":"noun","merged":false},
+        {"surface":"キャッシュ","start":16,"end":21,"kind":"noun","merged":false},
+        {"surface":"キャッシュの設計","start":16,"end":24,"kind":"phrase","merged":true,"parts":["キャッシュ","設計"]},
+        {"surface":"設計","start":22,"end":24,"kind":"noun","merged":false},
+        {"surface":"資料","start":26,"end":28,"kind":"noun","merged":false},
+        {"surface":"資料の構成","start":26,"end":31,"kind":"phrase","merged":true,"parts":["資料","構成"]},
+        {"surface":"構成","start":29,"end":31,"kind":"noun","merged":false},
+        {"surface":"最初","start":32,"end":34,"kind":"noun","merged":false},
+        {"surface":"最初のスライド","start":32,"end":39,"kind":"phrase","merged":true,"parts":["最初","スライド"]},
+        {"surface":"最初のスライドの文言","start":32,"end":42,"kind":"phrase","merged":true,"parts":["最初","スライド","文言"]},
+        {"surface":"スライド","start":35,"end":39,"kind":"noun","merged":false},
+        {"surface":"スライドの文言","start":35,"end":42,"kind":"phrase","merged":true,"parts":["スライド","文言"]},
+        {"surface":"文言","start":40,"end":42,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "weekend",
+      "set": "old",
+      "tag": "short",
+      "text": "週末の予定を決めたい",
+      "underline": ["予定"],
+      "unsure": [],
+      "v1Underline": ["予定"],
+      "v1Unsure": [],
+      "baselineTop3": ["予定"],
+      "baselineRank": ["予定"],
+      "reason": "誰と、どこで、何をするかが全く書かれていない。",
+      "candidates": [
+        {"surface":"予定","start":3,"end":5,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"予定","start":3,"end":5,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "apology-mail",
+      "set": "old",
+      "tag": "writing",
+      "text": "取引先に納期が3日遅れることをお詫びするメールを書いてほしい",
+      "underline": ["取引先","お詫び"],
+      "unsure": ["メール"],
+      "v1Underline": ["取引先","納期"],
+      "v1Unsure": ["お詫び"],
+      "baselineTop3": ["取引先","納期","お詫び"],
+      "baselineRank": ["取引先","納期","お詫び","メール"],
+      "reason": "取引先は関係の深さと丁寧さ、お詫びは謝り方の度合いと代替案が書かれていない。納期は3日と書かれている。",
+      "candidates": [
+        {"surface":"取引先","start":0,"end":3,"kind":"noun"},
+        {"surface":"納期","start":4,"end":6,"kind":"noun"},
+        {"surface":"お詫び","start":15,"end":18,"kind":"noun"},
+        {"surface":"メール","start":20,"end":23,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"取引先","start":0,"end":3,"kind":"noun","merged":false},
+        {"surface":"納期","start":4,"end":6,"kind":"noun","merged":false},
+        {"surface":"お詫び","start":15,"end":18,"kind":"noun","merged":false},
+        {"surface":"メール","start":20,"end":23,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "logo",
+      "set": "old",
+      "tag": "design",
+      "text": "新商品のロゴを3案つくりたい。若い女性向けのスキンケア用品で、清潔感がほしい",
+      "underline": ["ロゴ","女性向け"],
+      "unsure": ["スキンケア用品"],
+      "v1Underline": ["3案","女性向け"],
+      "v1Unsure": ["商品","ロゴ","スキンケア用品"],
+      "baselineTop3": ["スキンケア用品","商品","ロゴ"],
+      "baselineRank": ["スキンケア用品","商品","ロゴ","3案","女性向け"],
+      "reason": "ロゴは色と形の方向、女性向けは年齢層と調子が書かれていない。商品は句の前半が汎用語なので商品のロゴにはしない。3案は数が書かれている。",
+      "candidates": [
+        {"surface":"商品","start":1,"end":3,"kind":"noun"},
+        {"surface":"ロゴ","start":4,"end":6,"kind":"noun"},
+        {"surface":"3案","start":7,"end":9,"kind":"noun"},
+        {"surface":"女性向け","start":17,"end":21,"kind":"noun"},
+        {"surface":"スキンケア用品","start":22,"end":29,"kind":"compound"}
+      ],
+      "spans": [
+        {"surface":"商品","start":1,"end":3,"kind":"noun","merged":false},
+        {"surface":"商品のロゴ","start":1,"end":6,"kind":"phrase","merged":true,"parts":["商品","ロゴ"]},
+        {"surface":"ロゴ","start":4,"end":6,"kind":"noun","merged":false},
+        {"surface":"3案","start":7,"end":9,"kind":"noun","merged":false},
+        {"surface":"女性向け","start":17,"end":21,"kind":"noun","merged":false},
+        {"surface":"女性向けのスキンケア用品","start":17,"end":29,"kind":"phrase","merged":true,"parts":["女性向け","スキンケア用品"]},
+        {"surface":"スキンケア用品","start":22,"end":29,"kind":"compound","merged":false}
+      ]
+    },
+    {
+      "id": "moving",
+      "set": "old",
+      "tag": "events",
+      "text": "引っ越しの手順とチェックリストを作って。来月、東京から大阪へ引っ越す",
+      "underline": ["引っ越しの手順"],
+      "unsure": ["チェックリスト"],
+      "v1Underline": ["引っ越し"],
+      "v1Unsure": ["手順","チェックリスト"],
+      "baselineTop3": ["東京","大阪","チェックリスト"],
+      "baselineRank": ["東京","大阪","チェックリスト","引っ越し","手順"],
+      "reason": "引っ越しの手順は世帯の人数と荷物量、日数が書かれていない（引っ越しは手順の種類を指すだけなので1単位）。チェックリストは同じ前提を共有する。東京と大阪は指す先が決まっている。",
+      "candidates": [
+        {"surface":"引っ越し","start":0,"end":4,"kind":"noun"},
+        {"surface":"手順","start":5,"end":7,"kind":"noun"},
+        {"surface":"チェックリスト","start":8,"end":15,"kind":"compound"},
+        {"surface":"東京","start":23,"end":25,"kind":"proper"},
+        {"surface":"大阪","start":27,"end":29,"kind":"proper"}
+      ],
+      "spans": [
+        {"surface":"引っ越し","start":0,"end":4,"kind":"noun","merged":false},
+        {"surface":"引っ越しの手順","start":0,"end":7,"kind":"phrase","merged":true,"parts":["引っ越し","手順"]},
+        {"surface":"手順","start":5,"end":7,"kind":"noun","merged":false},
+        {"surface":"チェックリスト","start":8,"end":15,"kind":"compound","merged":false},
+        {"surface":"東京","start":23,"end":25,"kind":"proper","merged":false},
+        {"surface":"大阪","start":27,"end":29,"kind":"proper","merged":false}
+      ]
+    },
+    {
+      "id": "readme",
+      "set": "old",
+      "tag": "code/docs",
+      "text": "READMEにインストール手順と使い方を追加したい",
+      "underline": ["インストール手順"],
+      "unsure": ["README"],
+      "v1Underline": ["インストール手順"],
+      "v1Unsure": ["README"],
+      "baselineTop3": ["インストール手順","README","追加"],
+      "baselineRank": ["インストール手順","README","追加"],
+      "reason": "インストール手順は環境（OS・言語）と詳しさが書かれていない。READMEは既存の中身が分からないが境界。",
+      "candidates": [
+        {"surface":"README","start":0,"end":6,"kind":"noun"},
+        {"surface":"インストール手順","start":7,"end":15,"kind":"compound"},
+        {"surface":"追加","start":20,"end":22,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"README","start":0,"end":6,"kind":"noun","merged":false},
+        {"surface":"インストール手順","start":7,"end":15,"kind":"compound","merged":false},
+        {"surface":"追加","start":20,"end":22,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "gift",
+      "set": "old",
+      "tag": "product",
+      "text": "友だちの誕生日プレゼントを選びたい。予算は5000円くらいで、相手はコーヒー好き",
+      "underline": ["友だち","誕生日プレゼント"],
+      "unsure": ["コーヒー好き"],
+      "v1Underline": ["友だち","コーヒー好き"],
+      "v1Unsure": ["予算"],
+      "baselineTop3": ["誕生日プレゼント","友だち","予算"],
+      "baselineRank": ["誕生日プレゼント","友だち","予算","相手","コーヒー好き"],
+      "reason": "友だちは年齢と性別と親しさ、誕生日プレゼントは種類が書かれていない。別々の問いなので句にしない。予算は5000円と書かれている。コーヒー好きは好みの中身が未定だが境界。",
+      "candidates": [
+        {"surface":"友だち","start":0,"end":3,"kind":"noun"},
+        {"surface":"誕生日プレゼント","start":4,"end":12,"kind":"compound"},
+        {"surface":"予算","start":18,"end":20,"kind":"noun"},
+        {"surface":"相手","start":31,"end":33,"kind":"noun"},
+        {"surface":"コーヒー好き","start":34,"end":40,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"友だち","start":0,"end":3,"kind":"noun","merged":false},
+        {"surface":"友だちの誕生日プレゼント","start":0,"end":12,"kind":"phrase","merged":true,"parts":["友だち","誕生日プレゼント"]},
+        {"surface":"誕生日プレゼント","start":4,"end":12,"kind":"compound","merged":false},
+        {"surface":"予算","start":18,"end":20,"kind":"noun","merged":false},
+        {"surface":"相手","start":31,"end":33,"kind":"noun","merged":false},
+        {"surface":"コーヒー好き","start":34,"end":40,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "offsite",
+      "set": "old",
+      "tag": "events/long",
+      "text": "来年の春に、十数人のチームで二泊三日の合宿をしたい。場所は関東近郊の温泉地で、予算は一人五万円以内。一日目に全体の振り返り、二日目に新規事業のアイデア出しをしたいので、候補地の比較と当日のタイムテーブルを作ってほしい。堅苦しくない雰囲気にしたい。",
+      "underline": ["新規事業のアイデア出し","候補地の比較","タイムテーブル"],
+      "unsure": ["関東近郊","温泉地","雰囲気","チーム"],
+      "v1Underline": ["新規事業","比較"],
+      "v1Unsure": ["温泉地","アイデア出し","タイムテーブル","候補地"],
+      "baselineTop3": ["関東近郊","新規事業","タイムテーブル"],
+      "baselineRank": ["関東近郊","新規事業","タイムテーブル","チーム","合宿","場所","温泉地","予算","アイデア出し","候補地","比較","雰囲気"],
+      "reason": "新規事業のアイデア出しは分野と形式、候補地の比較は軸と数、タイムテーブルは細かさが書かれていない。場所は関東近郊の温泉地まで書かれている。予算と人数も書かれている。",
+      "candidates": [
+        {"surface":"チーム","start":10,"end":13,"kind":"noun"},
+        {"surface":"合宿","start":19,"end":21,"kind":"noun"},
+        {"surface":"場所","start":26,"end":28,"kind":"noun"},
+        {"surface":"関東近郊","start":29,"end":33,"kind":"proper"},
+        {"surface":"温泉地","start":34,"end":37,"kind":"noun"},
+        {"surface":"予算","start":39,"end":41,"kind":"noun"},
+        {"surface":"新規事業","start":66,"end":70,"kind":"compound"},
+        {"surface":"アイデア出し","start":71,"end":77,"kind":"noun"},
+        {"surface":"候補地","start":84,"end":87,"kind":"noun"},
+        {"surface":"比較","start":88,"end":90,"kind":"noun"},
+        {"surface":"タイムテーブル","start":94,"end":101,"kind":"compound"},
+        {"surface":"雰囲気","start":115,"end":118,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"チーム","start":10,"end":13,"kind":"noun","merged":false},
+        {"surface":"合宿","start":19,"end":21,"kind":"noun","merged":false},
+        {"surface":"場所","start":26,"end":28,"kind":"noun","merged":false},
+        {"surface":"関東近郊","start":29,"end":33,"kind":"proper","merged":false},
+        {"surface":"関東近郊の温泉地","start":29,"end":37,"kind":"phrase","merged":true,"parts":["関東近郊","温泉地"]},
+        {"surface":"温泉地","start":34,"end":37,"kind":"noun","merged":false},
+        {"surface":"予算","start":39,"end":41,"kind":"noun","merged":false},
+        {"surface":"新規事業","start":66,"end":70,"kind":"compound","merged":false},
+        {"surface":"新規事業のアイデア出し","start":66,"end":77,"kind":"phrase","merged":true,"parts":["新規事業","アイデア出し"]},
+        {"surface":"アイデア出し","start":71,"end":77,"kind":"noun","merged":false},
+        {"surface":"候補地","start":84,"end":87,"kind":"noun","merged":false},
+        {"surface":"候補地の比較","start":84,"end":90,"kind":"phrase","merged":true,"parts":["候補地","比較"]},
+        {"surface":"比較","start":88,"end":90,"kind":"noun","merged":false},
+        {"surface":"タイムテーブル","start":94,"end":101,"kind":"compound","merged":false},
+        {"surface":"雰囲気","start":115,"end":118,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "kids-party",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "子どもの誕生日パーティーで遊べるゲームを考えたい。友だちが8人くらい来る",
+      "underline": ["子ども","ゲーム"],
+      "unsure": ["誕生日パーティー"],
+      "baselineTop3": ["誕生日パーティー","子ども","ゲーム"],
+      "baselineRank": ["誕生日パーティー","子ども","ゲーム","友だち"],
+      "reason": "子どもは年齢と関心、ゲームは数と所要時間が書かれていない。子どもの誕生日パーティーは子どもが固有の問いを持つので句にしない。友だちの人数は書かれている。",
+      "candidates": [
+        {"surface":"子ども","start":0,"end":3,"kind":"noun"},
+        {"surface":"誕生日パーティー","start":4,"end":12,"kind":"compound"},
+        {"surface":"ゲーム","start":16,"end":19,"kind":"noun"},
+        {"surface":"友だち","start":25,"end":28,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"子ども","start":0,"end":3,"kind":"noun","merged":false},
+        {"surface":"子どもの誕生日パーティー","start":0,"end":12,"kind":"phrase","merged":true,"parts":["子ども","誕生日パーティー"]},
+        {"surface":"誕生日パーティー","start":4,"end":12,"kind":"compound","merged":false},
+        {"surface":"ゲーム","start":16,"end":19,"kind":"noun","merged":false},
+        {"surface":"友だち","start":25,"end":28,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "kyoto-ryokan",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "京都の旅館を探している。大人二人で、記念日の旅行にしたい",
+      "underline": ["京都","旅館"],
+      "unsure": ["記念日","旅行"],
+      "baselineTop3": ["京都","旅館","大人二人"],
+      "baselineRank": ["京都","旅館","大人二人","記念日","旅行"],
+      "reason": "京都は地域（市内か郊外か）、旅館は予算と格が書かれていない。別々の問いなので句にしない。記念日は何の記念日かで雰囲気が変わるが境界。",
+      "candidates": [
+        {"surface":"京都","start":0,"end":2,"kind":"proper"},
+        {"surface":"旅館","start":3,"end":5,"kind":"noun"},
+        {"surface":"大人二人","start":12,"end":16,"kind":"noun"},
+        {"surface":"記念日","start":18,"end":21,"kind":"noun"},
+        {"surface":"旅行","start":22,"end":24,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"京都","start":0,"end":2,"kind":"proper","merged":false},
+        {"surface":"京都の旅館","start":0,"end":5,"kind":"phrase","merged":true,"parts":["京都","旅館"]},
+        {"surface":"旅館","start":3,"end":5,"kind":"noun","merged":false},
+        {"surface":"大人二人","start":12,"end":16,"kind":"noun","merged":false},
+        {"surface":"記念日","start":18,"end":21,"kind":"noun","merged":false},
+        {"surface":"記念日の旅行","start":18,"end":24,"kind":"phrase","merged":true,"parts":["記念日","旅行"]},
+        {"surface":"旅行","start":22,"end":24,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "welcome-speech",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "新入社員の歓迎会で、部長の挨拶の原稿を書いてほしい",
+      "underline": ["部長","挨拶の原稿"],
+      "unsure": ["新入社員","歓迎会"],
+      "baselineTop3": ["新入社員","歓迎会","部長"],
+      "baselineRank": ["新入社員","歓迎会","部長","挨拶","原稿"],
+      "reason": "部長は話し手の人柄、挨拶の原稿は長さと調子が書かれていない（挨拶は原稿の種類を指すだけなので1単位）。新入社員と歓迎会は人数と格式で境界。",
+      "candidates": [
+        {"surface":"新入社員","start":0,"end":4,"kind":"compound"},
+        {"surface":"歓迎会","start":5,"end":8,"kind":"noun"},
+        {"surface":"部長","start":10,"end":12,"kind":"noun"},
+        {"surface":"挨拶","start":13,"end":15,"kind":"noun"},
+        {"surface":"原稿","start":16,"end":18,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"新入社員","start":0,"end":4,"kind":"compound","merged":false},
+        {"surface":"新入社員の歓迎会","start":0,"end":8,"kind":"phrase","merged":true,"parts":["新入社員","歓迎会"]},
+        {"surface":"歓迎会","start":5,"end":8,"kind":"noun","merged":false},
+        {"surface":"部長","start":10,"end":12,"kind":"noun","merged":false},
+        {"surface":"部長の挨拶","start":10,"end":15,"kind":"phrase","merged":true,"parts":["部長","挨拶"]},
+        {"surface":"部長の挨拶の原稿","start":10,"end":18,"kind":"phrase","merged":true,"parts":["部長","挨拶","原稿"]},
+        {"surface":"挨拶","start":13,"end":15,"kind":"noun","merged":false},
+        {"surface":"挨拶の原稿","start":13,"end":18,"kind":"phrase","merged":true,"parts":["挨拶","原稿"]},
+        {"surface":"原稿","start":16,"end":18,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "minutes",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "週次ミーティングで使う議事録のテンプレートを作りたい。参加者は10人ほど",
+      "underline": ["議事録のテンプレート"],
+      "unsure": ["週次ミーティング"],
+      "baselineTop3": ["週次ミーティング","議事録","テンプレート"],
+      "baselineRank": ["週次ミーティング","議事録","テンプレート","参加者"],
+      "reason": "議事録のテンプレートは項目と書式が書かれていない（議事録はテンプレートの種類を指すだけなので1単位）。会議の種類は項目に響くが境界。参加者は10人と書かれている。",
+      "candidates": [
+        {"surface":"週次ミーティング","start":0,"end":8,"kind":"compound"},
+        {"surface":"議事録","start":11,"end":14,"kind":"noun"},
+        {"surface":"テンプレート","start":15,"end":21,"kind":"noun"},
+        {"surface":"参加者","start":27,"end":30,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"週次ミーティング","start":0,"end":8,"kind":"compound","merged":false},
+        {"surface":"議事録","start":11,"end":14,"kind":"noun","merged":false},
+        {"surface":"議事録のテンプレート","start":11,"end":21,"kind":"phrase","merged":true,"parts":["議事録","テンプレート"]},
+        {"surface":"テンプレート","start":15,"end":21,"kind":"noun","merged":false},
+        {"surface":"参加者","start":27,"end":30,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "summer-homework",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "中学生の娘の夏休みの宿題を手伝いたい。読書感想文がまだ終わっていない",
+      "underline": ["中学生","夏休みの宿題","読書感想文"],
+      "unsure": [],
+      "baselineTop3": ["読書感想文","中学生","夏休み"],
+      "baselineRank": ["読書感想文","中学生","夏休み","宿題"],
+      "reason": "中学生は学年と得意不得意、夏休みの宿題はどの教科かと量、読書感想文は本と字数が書かれていない。夏休みは宿題の種類を指すだけなので1単位。",
+      "candidates": [
+        {"surface":"中学生","start":0,"end":3,"kind":"noun"},
+        {"surface":"夏休み","start":6,"end":9,"kind":"noun"},
+        {"surface":"宿題","start":10,"end":12,"kind":"noun"},
+        {"surface":"読書感想文","start":19,"end":24,"kind":"compound"}
+      ],
+      "spans": [
+        {"surface":"中学生","start":0,"end":3,"kind":"noun","merged":false},
+        {"surface":"夏休み","start":6,"end":9,"kind":"noun","merged":false},
+        {"surface":"夏休みの宿題","start":6,"end":12,"kind":"phrase","merged":true,"parts":["夏休み","宿題"]},
+        {"surface":"宿題","start":10,"end":12,"kind":"noun","merged":false},
+        {"surface":"読書感想文","start":19,"end":24,"kind":"compound","merged":false}
+      ]
+    },
+    {
+      "id": "product-copy",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "ハンドクリームの商品説明文を書いてほしい。新発売で、通販サイトに載せる",
+      "underline": ["ハンドクリーム","商品説明文"],
+      "unsure": ["通販サイト"],
+      "baselineTop3": ["ハンドクリーム","商品説明文","通販サイト"],
+      "baselineRank": ["ハンドクリーム","商品説明文","通販サイト","発売"],
+      "reason": "ハンドクリームは成分・香り・価格帯、商品説明文は長さと調子が書かれていない。別々の問いなので句にしない。通販サイトは字数制限などで境界。",
+      "candidates": [
+        {"surface":"ハンドクリーム","start":0,"end":7,"kind":"compound"},
+        {"surface":"商品説明文","start":8,"end":13,"kind":"compound"},
+        {"surface":"発売","start":22,"end":24,"kind":"noun"},
+        {"surface":"通販サイト","start":26,"end":31,"kind":"compound"}
+      ],
+      "spans": [
+        {"surface":"ハンドクリーム","start":0,"end":7,"kind":"compound","merged":false},
+        {"surface":"ハンドクリームの商品説明文","start":0,"end":13,"kind":"phrase","merged":true,"parts":["ハンドクリーム","商品説明文"]},
+        {"surface":"商品説明文","start":8,"end":13,"kind":"compound","merged":false},
+        {"surface":"発売","start":22,"end":24,"kind":"noun","merged":false},
+        {"surface":"通販サイト","start":26,"end":31,"kind":"compound","merged":false}
+      ]
+    },
+    {
+      "id": "cafe-open",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "新しくオープンするカフェの集客を考えたい。近所の主婦と学生に来てほしくて、予算は月5万円。SNSの運用とチラシの配布で迷っている。オープン記念のキャンペーンも考えてほしい",
+      "underline": ["カフェ","近所の主婦","学生","SNS","チラシ","オープン記念のキャンペーン"],
+      "unsure": ["集客","運用","配布"],
+      "baselineTop3": ["SNS","オープン記念","オープン"],
+      "baselineRank": ["SNS","オープン記念","オープン","カフェ","集客","近所","主婦","学生","予算","月5万円","運用","チラシ","配布","キャンペーン"],
+      "reason": "カフェは業態と立地、近所の主婦は年代と生活（一人の客層として1単位）、学生は大学生か高校生か、SNSはどの媒体か、チラシは大きさと内容、オープン記念のキャンペーンは中身と期間が書かれていない。予算は月5万円と書かれている。SNSの運用とチラシの配布は、前半が固有の問いを持つので句にしない。",
+      "candidates": [
+        {"surface":"オープン","start":3,"end":7,"kind":"noun"},
+        {"surface":"カフェ","start":9,"end":12,"kind":"noun"},
+        {"surface":"集客","start":13,"end":15,"kind":"noun"},
+        {"surface":"近所","start":21,"end":23,"kind":"noun"},
+        {"surface":"主婦","start":24,"end":26,"kind":"noun"},
+        {"surface":"学生","start":27,"end":29,"kind":"noun"},
+        {"surface":"予算","start":37,"end":39,"kind":"noun"},
+        {"surface":"月5万円","start":40,"end":44,"kind":"noun"},
+        {"surface":"SNS","start":45,"end":48,"kind":"proper"},
+        {"surface":"運用","start":49,"end":51,"kind":"noun"},
+        {"surface":"チラシ","start":52,"end":55,"kind":"noun"},
+        {"surface":"配布","start":56,"end":58,"kind":"noun"},
+        {"surface":"オープン記念","start":65,"end":71,"kind":"compound"},
+        {"surface":"キャンペーン","start":72,"end":78,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"オープン","start":3,"end":7,"kind":"noun","merged":false},
+        {"surface":"カフェ","start":9,"end":12,"kind":"noun","merged":false},
+        {"surface":"カフェの集客","start":9,"end":15,"kind":"phrase","merged":true,"parts":["カフェ","集客"]},
+        {"surface":"集客","start":13,"end":15,"kind":"noun","merged":false},
+        {"surface":"近所","start":21,"end":23,"kind":"noun","merged":false},
+        {"surface":"近所の主婦","start":21,"end":26,"kind":"phrase","merged":true,"parts":["近所","主婦"]},
+        {"surface":"主婦","start":24,"end":26,"kind":"noun","merged":false},
+        {"surface":"学生","start":27,"end":29,"kind":"noun","merged":false},
+        {"surface":"予算","start":37,"end":39,"kind":"noun","merged":false},
+        {"surface":"月5万円","start":40,"end":44,"kind":"noun","merged":false},
+        {"surface":"SNS","start":45,"end":48,"kind":"proper","merged":false},
+        {"surface":"SNSの運用","start":45,"end":51,"kind":"phrase","merged":true,"parts":["SNS","運用"]},
+        {"surface":"運用","start":49,"end":51,"kind":"noun","merged":false},
+        {"surface":"チラシ","start":52,"end":55,"kind":"noun","merged":false},
+        {"surface":"チラシの配布","start":52,"end":58,"kind":"phrase","merged":true,"parts":["チラシ","配布"]},
+        {"surface":"配布","start":56,"end":58,"kind":"noun","merged":false},
+        {"surface":"オープン記念","start":65,"end":71,"kind":"compound","merged":false},
+        {"surface":"オープン記念のキャンペーン","start":65,"end":78,"kind":"phrase","merged":true,"parts":["オープン記念","キャンペーン"]},
+        {"surface":"キャンペーン","start":72,"end":78,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "internal-talk",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "来月の社内発表で使うスライドの構成を考えてほしい。持ち時間は15分",
+      "underline": ["社内発表","スライドの構成"],
+      "unsure": [],
+      "baselineTop3": ["社内発表","スライド","構成"],
+      "baselineRank": ["社内発表","スライド","構成","持ち時間"],
+      "reason": "社内発表は題材と聞き手、スライドの構成は枚数と流れが書かれていない（スライドは構成の種類を指すだけなので1単位）。持ち時間は15分と書かれている。",
+      "candidates": [
+        {"surface":"社内発表","start":3,"end":7,"kind":"compound"},
+        {"surface":"スライド","start":10,"end":14,"kind":"noun"},
+        {"surface":"構成","start":15,"end":17,"kind":"noun"},
+        {"surface":"持ち時間","start":25,"end":29,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"社内発表","start":3,"end":7,"kind":"compound","merged":false},
+        {"surface":"スライド","start":10,"end":14,"kind":"noun","merged":false},
+        {"surface":"スライドの構成","start":10,"end":17,"kind":"phrase","merged":true,"parts":["スライド","構成"]},
+        {"surface":"構成","start":15,"end":17,"kind":"noun","merged":false},
+        {"surface":"持ち時間","start":25,"end":29,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "wedding-gift",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "同僚が結婚するので、結婚祝いのプレゼントを選びたい。予算は一人3000円で、部署の10人で出す",
+      "underline": ["同僚","結婚祝いのプレゼント"],
+      "unsure": [],
+      "baselineTop3": ["結婚祝い","同僚","結婚"],
+      "baselineRank": ["結婚祝い","同僚","結婚","プレゼント","予算","部署"],
+      "reason": "同僚は年齢と性別と親しさ、結婚祝いのプレゼントは種類が書かれていない（結婚祝いはプレゼントの種類を指すだけなので1単位）。予算と人数は書かれている。",
+      "candidates": [
+        {"surface":"同僚","start":0,"end":2,"kind":"noun"},
+        {"surface":"結婚","start":3,"end":5,"kind":"noun"},
+        {"surface":"結婚祝い","start":10,"end":14,"kind":"compound"},
+        {"surface":"プレゼント","start":15,"end":20,"kind":"noun"},
+        {"surface":"予算","start":26,"end":28,"kind":"noun"},
+        {"surface":"部署","start":38,"end":40,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"同僚","start":0,"end":2,"kind":"noun","merged":false},
+        {"surface":"結婚","start":3,"end":5,"kind":"noun","merged":false},
+        {"surface":"結婚祝い","start":10,"end":14,"kind":"compound","merged":false},
+        {"surface":"結婚祝いのプレゼント","start":10,"end":20,"kind":"phrase","merged":true,"parts":["結婚祝い","プレゼント"]},
+        {"surface":"プレゼント","start":15,"end":20,"kind":"noun","merged":false},
+        {"surface":"予算","start":26,"end":28,"kind":"noun","merged":false},
+        {"surface":"部署","start":38,"end":40,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "side-dish",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "冷蔵庫に残った野菜で、夕食の副菜を作るレシピを教えて",
+      "underline": ["野菜","レシピ"],
+      "unsure": ["夕食"],
+      "baselineTop3": ["冷蔵庫","野菜","夕食"],
+      "baselineRank": ["冷蔵庫","野菜","夕食","レシピ"],
+      "reason": "野菜は何が残っているか、レシピは品数と手間が書かれていない。夕食は人数と主菜だが境界。",
+      "candidates": [
+        {"surface":"冷蔵庫","start":0,"end":3,"kind":"noun"},
+        {"surface":"野菜","start":7,"end":9,"kind":"noun"},
+        {"surface":"夕食","start":11,"end":13,"kind":"noun"},
+        {"surface":"レシピ","start":19,"end":22,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"冷蔵庫","start":0,"end":3,"kind":"noun","merged":false},
+        {"surface":"野菜","start":7,"end":9,"kind":"noun","merged":false},
+        {"surface":"夕食","start":11,"end":13,"kind":"noun","merged":false},
+        {"surface":"レシピ","start":19,"end":22,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "onboarding",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "新しく入るエンジニア向けのオンボーディング資料をまとめたい。チームはRailsを使っている",
+      "underline": ["エンジニア向け","オンボーディング資料"],
+      "unsure": ["チーム"],
+      "baselineTop3": ["オンボーディング資料","エンジニア向け","チーム"],
+      "baselineRank": ["オンボーディング資料","エンジニア向け","チーム","Rails"],
+      "reason": "エンジニア向けは経験年数、オンボーディング資料は範囲と形式が書かれていない。別々の問いなので句にしない。チームは規模で境界。",
+      "candidates": [
+        {"surface":"エンジニア向け","start":5,"end":12,"kind":"noun"},
+        {"surface":"オンボーディング資料","start":13,"end":23,"kind":"compound"},
+        {"surface":"チーム","start":30,"end":33,"kind":"noun"},
+        {"surface":"Rails","start":34,"end":39,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"エンジニア向け","start":5,"end":12,"kind":"noun","merged":false},
+        {"surface":"エンジニア向けのオンボーディング資料","start":5,"end":23,"kind":"phrase","merged":true,"parts":["エンジニア向け","オンボーディング資料"]},
+        {"surface":"オンボーディング資料","start":13,"end":23,"kind":"compound","merged":false},
+        {"surface":"チーム","start":30,"end":33,"kind":"noun","merged":false},
+        {"surface":"Rails","start":34,"end":39,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "kyushu-onsen",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "両親を連れて九州の温泉に行きたい。二泊三日で、車は使わない",
+      "underline": ["両親","九州","温泉"],
+      "unsure": [],
+      "baselineTop3": ["九州","両親","温泉"],
+      "baselineRank": ["九州","両親","温泉"],
+      "reason": "両親は年齢と足腰、九州はどの県か、温泉は種類と予算が書かれていない。別々の問いなので句にしない。日数は書かれている。",
+      "candidates": [
+        {"surface":"両親","start":0,"end":2,"kind":"noun"},
+        {"surface":"九州","start":6,"end":8,"kind":"proper"},
+        {"surface":"温泉","start":9,"end":11,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"両親","start":0,"end":2,"kind":"noun","merged":false},
+        {"surface":"九州","start":6,"end":8,"kind":"proper","merged":false},
+        {"surface":"九州の温泉","start":6,"end":11,"kind":"phrase","merged":true,"parts":["九州","温泉"]},
+        {"surface":"温泉","start":9,"end":11,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "motivation",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "転職活動で使う志望動機の書き方を教えてほしい。営業職から企画職に変わりたい",
+      "underline": ["志望動機の書き方"],
+      "unsure": ["企画職"],
+      "baselineTop3": ["転職活動","志望動機","書き方"],
+      "baselineRank": ["転職活動","志望動機","書き方","営業職","企画職"],
+      "reason": "志望動機の書き方は書式と、本人の経験が書かれていない（志望動機は書き方の種類を指すだけなので1単位）。企画職は業界で境界。",
+      "candidates": [
+        {"surface":"転職活動","start":0,"end":4,"kind":"compound"},
+        {"surface":"志望動機","start":7,"end":11,"kind":"compound"},
+        {"surface":"書き方","start":12,"end":15,"kind":"noun"},
+        {"surface":"営業職","start":23,"end":26,"kind":"noun"},
+        {"surface":"企画職","start":28,"end":31,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"転職活動","start":0,"end":4,"kind":"compound","merged":false},
+        {"surface":"志望動機","start":7,"end":11,"kind":"compound","merged":false},
+        {"surface":"志望動機の書き方","start":7,"end":15,"kind":"phrase","merged":true,"parts":["志望動機","書き方"]},
+        {"surface":"書き方","start":12,"end":15,"kind":"noun","merged":false},
+        {"surface":"営業職","start":23,"end":26,"kind":"noun","merged":false},
+        {"surface":"企画職","start":28,"end":31,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "api-error",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "ユーザー情報を返すAPIで使う、エラーレスポンスの形式を決めたい。クライアントはモバイルアプリ",
+      "underline": ["エラーレスポンスの形式"],
+      "unsure": ["API","モバイルアプリ"],
+      "baselineTop3": ["モバイルアプリ","ユーザー情報","エラーレスポンス"],
+      "baselineRank": ["モバイルアプリ","ユーザー情報","エラーレスポンス","API","形式","クライアント"],
+      "reason": "エラーレスポンスの形式は項目とコード体系が書かれていない（エラーレスポンスは形式の種類を指すだけなので1単位）。APIの方式やアプリの OS は境界。",
+      "candidates": [
+        {"surface":"ユーザー情報","start":0,"end":6,"kind":"compound"},
+        {"surface":"API","start":9,"end":12,"kind":"noun"},
+        {"surface":"エラーレスポンス","start":16,"end":24,"kind":"compound"},
+        {"surface":"形式","start":25,"end":27,"kind":"noun"},
+        {"surface":"クライアント","start":33,"end":39,"kind":"noun"},
+        {"surface":"モバイルアプリ","start":40,"end":47,"kind":"proper"}
+      ],
+      "spans": [
+        {"surface":"ユーザー情報","start":0,"end":6,"kind":"compound","merged":false},
+        {"surface":"API","start":9,"end":12,"kind":"noun","merged":false},
+        {"surface":"エラーレスポンス","start":16,"end":24,"kind":"compound","merged":false},
+        {"surface":"エラーレスポンスの形式","start":16,"end":27,"kind":"phrase","merged":true,"parts":["エラーレスポンス","形式"]},
+        {"surface":"形式","start":25,"end":27,"kind":"noun","merged":false},
+        {"surface":"クライアント","start":33,"end":39,"kind":"noun","merged":false},
+        {"surface":"モバイルアプリ","start":40,"end":47,"kind":"proper","merged":false}
+      ]
+    },
+    {
+      "id": "training-redo",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "新人研修の資料を作り直したい。去年は座学が長くて評判が悪かったので、ワークを増やして、午後は実際にコードを書く時間にしたい。参加者は15人ほどで、研修は3日間。講師は先輩エンジニアに頼む予定",
+      "underline": ["新人研修の資料","ワーク","コード"],
+      "unsure": ["座学"],
+      "baselineTop3": ["新人研修","先輩エンジニア","資料"],
+      "baselineRank": ["新人研修","先輩エンジニア","資料","座学","評判","ワーク","コード","参加者","研修","講師","予定"],
+      "reason": "新人研修の資料は分野と量、ワークは種類と数、コードは言語と難しさが書かれていない（新人研修は資料の種類を指すだけなので1単位）。座学は減らす量が未定で境界。参加者数と日数は書かれている。",
+      "candidates": [
+        {"surface":"新人研修","start":0,"end":4,"kind":"compound"},
+        {"surface":"資料","start":5,"end":7,"kind":"noun"},
+        {"surface":"座学","start":18,"end":20,"kind":"noun"},
+        {"surface":"評判","start":24,"end":26,"kind":"noun"},
+        {"surface":"ワーク","start":34,"end":37,"kind":"noun"},
+        {"surface":"コード","start":49,"end":52,"kind":"noun"},
+        {"surface":"参加者","start":62,"end":65,"kind":"noun"},
+        {"surface":"研修","start":73,"end":75,"kind":"noun"},
+        {"surface":"講師","start":80,"end":82,"kind":"noun"},
+        {"surface":"先輩エンジニア","start":83,"end":90,"kind":"compound"},
+        {"surface":"予定","start":93,"end":95,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"新人研修","start":0,"end":4,"kind":"compound","merged":false},
+        {"surface":"新人研修の資料","start":0,"end":7,"kind":"phrase","merged":true,"parts":["新人研修","資料"]},
+        {"surface":"資料","start":5,"end":7,"kind":"noun","merged":false},
+        {"surface":"座学","start":18,"end":20,"kind":"noun","merged":false},
+        {"surface":"評判","start":24,"end":26,"kind":"noun","merged":false},
+        {"surface":"ワーク","start":34,"end":37,"kind":"noun","merged":false},
+        {"surface":"コード","start":49,"end":52,"kind":"noun","merged":false},
+        {"surface":"参加者","start":62,"end":65,"kind":"noun","merged":false},
+        {"surface":"研修","start":73,"end":75,"kind":"noun","merged":false},
+        {"surface":"講師","start":80,"end":82,"kind":"noun","merged":false},
+        {"surface":"先輩エンジニア","start":83,"end":90,"kind":"compound","merged":false},
+        {"surface":"予定","start":93,"end":95,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "thanks-letter",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "お世話になった先生へのお礼の手紙の文面を考えて。卒業して5年たつ",
+      "underline": ["先生","お礼の手紙の文面"],
+      "unsure": [],
+      "baselineTop3": ["お世話","先生","お礼"],
+      "baselineRank": ["お世話","先生","お礼","手紙","文面","卒業"],
+      "reason": "先生は関係の深さと年齢、お礼の手紙の文面は長さと調子が書かれていない（お礼と手紙は文面の種類を指すだけなので3語を1単位）。卒業からの年数は書かれている。",
+      "candidates": [
+        {"surface":"お世話","start":0,"end":3,"kind":"noun"},
+        {"surface":"先生","start":7,"end":9,"kind":"noun"},
+        {"surface":"お礼","start":11,"end":13,"kind":"noun"},
+        {"surface":"手紙","start":14,"end":16,"kind":"noun"},
+        {"surface":"文面","start":17,"end":19,"kind":"noun"},
+        {"surface":"卒業","start":24,"end":26,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"お世話","start":0,"end":3,"kind":"noun","merged":false},
+        {"surface":"先生","start":7,"end":9,"kind":"noun","merged":false},
+        {"surface":"お礼","start":11,"end":13,"kind":"noun","merged":false},
+        {"surface":"お礼の手紙","start":11,"end":16,"kind":"phrase","merged":true,"parts":["お礼","手紙"]},
+        {"surface":"お礼の手紙の文面","start":11,"end":19,"kind":"phrase","merged":true,"parts":["お礼","手紙","文面"]},
+        {"surface":"手紙","start":14,"end":16,"kind":"noun","merged":false},
+        {"surface":"手紙の文面","start":14,"end":19,"kind":"phrase","merged":true,"parts":["手紙","文面"]},
+        {"surface":"文面","start":17,"end":19,"kind":"noun","merged":false},
+        {"surface":"卒業","start":24,"end":26,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "weather",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "明日の東京の天気を教えて",
+      "underline": [],
+      "unsure": [],
+      "baselineTop3": ["東京","天気"],
+      "baselineRank": ["東京","天気"],
+      "reason": "東京と明日で指す先が決まっていて、置く前提が無い。",
+      "candidates": [
+        {"surface":"東京","start":3,"end":5,"kind":"proper"},
+        {"surface":"天気","start":6,"end":8,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"東京","start":3,"end":5,"kind":"proper","merged":false},
+        {"surface":"東京の天気","start":3,"end":8,"kind":"phrase","merged":true,"parts":["東京","天気"]},
+        {"surface":"天気","start":6,"end":8,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "chatbot",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "問い合わせ対応を自動化するチャットボットの導入を検討している。まず費用感を知りたい",
+      "underline": ["チャットボット","費用感"],
+      "unsure": ["問い合わせ対応"],
+      "baselineTop3": ["問い合わせ対応","自動化","チャットボット"],
+      "baselineRank": ["問い合わせ対応","自動化","チャットボット","導入","検討","費用感"],
+      "reason": "チャットボットは方式（ルール型か生成型か）、費用感は規模と期間が書かれていない。導入は範囲が未定だが、チャットボットの導入は句にしない。問い合わせ対応は件数で境界。",
+      "candidates": [
+        {"surface":"問い合わせ対応","start":0,"end":7,"kind":"compound"},
+        {"surface":"自動化","start":8,"end":11,"kind":"noun"},
+        {"surface":"チャットボット","start":13,"end":20,"kind":"noun"},
+        {"surface":"導入","start":21,"end":23,"kind":"noun"},
+        {"surface":"検討","start":24,"end":26,"kind":"noun"},
+        {"surface":"費用感","start":33,"end":36,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"問い合わせ対応","start":0,"end":7,"kind":"compound","merged":false},
+        {"surface":"自動化","start":8,"end":11,"kind":"noun","merged":false},
+        {"surface":"チャットボット","start":13,"end":20,"kind":"noun","merged":false},
+        {"surface":"チャットボットの導入","start":13,"end":23,"kind":"phrase","merged":true,"parts":["チャットボット","導入"]},
+        {"surface":"導入","start":21,"end":23,"kind":"noun","merged":false},
+        {"surface":"検討","start":24,"end":26,"kind":"noun","merged":false},
+        {"surface":"費用感","start":33,"end":36,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "sports-day",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "小学校の運動会の保護者向け案内文を書きたい。雨の場合の対応も入れる",
+      "underline": ["運動会","保護者向け案内文","対応"],
+      "unsure": ["小学校"],
+      "baselineTop3": ["保護者向け案内文","小学校","運動会"],
+      "baselineRank": ["保護者向け案内文","小学校","運動会","対応"],
+      "reason": "運動会は日時と場所、保護者向け案内文は長さと調子、雨の場合の対応は延期か中止かが書かれていない。小学校は規模で境界。",
+      "candidates": [
+        {"surface":"小学校","start":0,"end":3,"kind":"noun"},
+        {"surface":"運動会","start":4,"end":7,"kind":"noun"},
+        {"surface":"保護者向け案内文","start":8,"end":16,"kind":"compound"},
+        {"surface":"対応","start":27,"end":29,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"小学校","start":0,"end":3,"kind":"noun","merged":false},
+        {"surface":"小学校の運動会","start":0,"end":7,"kind":"phrase","merged":true,"parts":["小学校","運動会"]},
+        {"surface":"小学校の運動会の保護者向け案内文","start":0,"end":16,"kind":"phrase","merged":true,"parts":["小学校","運動会","保護者向け案内文"]},
+        {"surface":"運動会","start":4,"end":7,"kind":"noun","merged":false},
+        {"surface":"運動会の保護者向け案内文","start":4,"end":16,"kind":"phrase","merged":true,"parts":["運動会","保護者向け案内文"]},
+        {"surface":"保護者向け案内文","start":8,"end":16,"kind":"compound","merged":false},
+        {"surface":"対応","start":27,"end":29,"kind":"noun","merged":false}
+      ]
+    },
+    {
+      "id": "launch",
+      "set": "heldout",
+      "tag": "heldout",
+      "text": "来月発売するスマホアプリの宣伝を考えたい。対象は20代の社会人で、予算は100万円まで。SNS広告とイベントのどちらに使うかで迷っている",
+      "underline": ["スマホアプリ","宣伝","SNS広告","イベント"],
+      "unsure": [],
+      "baselineTop3": ["SNS広告","発売","スマホアプリ"],
+      "baselineRank": ["SNS広告","発売","スマホアプリ","宣伝","対象","社会人","予算","イベント"],
+      "reason": "スマホアプリは種類、宣伝は期間と目標、SNS広告は媒体、イベントは種類と規模が書かれていない。対象と予算は書かれている。",
+      "candidates": [
+        {"surface":"発売","start":2,"end":4,"kind":"noun"},
+        {"surface":"スマホアプリ","start":6,"end":12,"kind":"noun"},
+        {"surface":"宣伝","start":13,"end":15,"kind":"noun"},
+        {"surface":"対象","start":21,"end":23,"kind":"noun"},
+        {"surface":"社会人","start":28,"end":31,"kind":"noun"},
+        {"surface":"予算","start":33,"end":35,"kind":"noun"},
+        {"surface":"SNS広告","start":44,"end":49,"kind":"proper"},
+        {"surface":"イベント","start":50,"end":54,"kind":"noun"}
+      ],
+      "spans": [
+        {"surface":"発売","start":2,"end":4,"kind":"noun","merged":false},
+        {"surface":"スマホアプリ","start":6,"end":12,"kind":"noun","merged":false},
+        {"surface":"スマホアプリの宣伝","start":6,"end":15,"kind":"phrase","merged":true,"parts":["スマホアプリ","宣伝"]},
+        {"surface":"宣伝","start":13,"end":15,"kind":"noun","merged":false},
+        {"surface":"対象","start":21,"end":23,"kind":"noun","merged":false},
+        {"surface":"社会人","start":28,"end":31,"kind":"noun","merged":false},
+        {"surface":"予算","start":33,"end":35,"kind":"noun","merged":false},
+        {"surface":"SNS広告","start":44,"end":49,"kind":"proper","merged":false},
+        {"surface":"イベント","start":50,"end":54,"kind":"noun","merged":false}
+      ]
+    }
+  ]
+}
