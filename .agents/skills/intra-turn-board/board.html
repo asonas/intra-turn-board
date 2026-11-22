@@ -403,6 +403,8 @@ function inventoryEntry(item, index) {
   return { id: 'inv:' + index, words: [item.topic], icon: 'tag', sections: [sec] }
 }
 const isDecided = (note, sec) => note.decisions[sec.key] !== undefined
+// 確認済みとして扱う前提。サーバー版では、ユーザーが選んだものだけ。見本の台本は既定値のまま動かす
+const isConfirmed = (note, sec) => isDecided(note, sec) && (DEMO || note.touched.has(sec.key))
 
 /* ============ 前提の解析（Feedforward） ============
    入力中の文から、前提を置く語を見つけて下線を引く。見本 (DEMO) では LEXICON の語を先に取り、空いている分を Kuromoji の候補で埋める。
@@ -428,7 +430,7 @@ function scan(text) {
 function arrange(sc, chosen) {
   const hits = [...sc.hits]
   for (const { c, item, value } of chosen) hits.push({ start: c.start, end: c.end, entry: item >= 0 ? inventoryEntry(sc.open[item], item) : genericEntry(c), ...(value !== undefined && { value }) })
-  if (!sc.hits.length && sc.len >= 8) hits.push({ start: -1, end: -1, entry: GENERIC_TOP })
+  if (DEMO && !sc.hits.length && sc.len >= 8) hits.push({ start: -1, end: -1, entry: GENERIC_TOP })
   hits.sort((a, b) => a.start - b.start)
   const out = []; let last = -1
   for (const m of hits) { if (m.start >= 0 && m.start < last) continue; out.push(m); if (m.start >= 0) last = m.end }
@@ -1124,7 +1126,7 @@ function renderMirror(note) {
 }
 // 送る前は、いちばん大きな前提だけを付箋の上に出す。在庫の論点は選ぶまで前提ではないので、決まったものだけ
 function renderAssume(note) {
-  const m = note.matches.find(m => m.entry.top) || note.matches.find(m => m.entry.sections.every(s => isDecided(note, s)))
+  const m = note.matches.find(m => m.entry.top) || note.matches.find(m => m.entry.sections.every(s => isConfirmed(note, s)))
   if (!m || note.sent) { note.assume.hidden = true; return }
   const sec = m.entry.sections[0]
   const val = h('button', { class: 'val', type: 'button' }, fmt(sec, note.decisions[sec.key]))
@@ -1194,7 +1196,7 @@ async function runCard(card) {
   card.foot.className = 'cfoot'; card.foot.textContent = ''
   if (!card.skel.isConnected) card.body.prepend(card.skel)
   setNoteStatus(note, 'thinking', '考えています')
-  const lines = note.matches.flatMap(m => m.entry.sections.map(s => [m.entry.icon, s])).filter(([, s]) => isDecided(note, s))
+  const lines = note.matches.flatMap(m => m.entry.sections.map(s => [m.entry.icon, s])).filter(([, s]) => isConfirmed(note, s))
   const assumptions = lines.map(([, s]) => s.say[0] + fmt(s, note.decisions[s.key]) + s.say[1])
   try {
     card.plan = await adapter.compose(note.ta.value, note.decisions, note.quote, assumptions)
