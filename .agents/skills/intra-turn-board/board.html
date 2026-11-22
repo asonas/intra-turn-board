@@ -293,26 +293,84 @@ const LEXICON = [
   { id: 'app', words: ['アプリ'], icon: 'layout', sections: [
     { key: 'kind', q: 'どんなアプリ？', type: 'chips', options: ['付箋ボード', 'メモ', '家計簿', '学習'], def: '付箋ボード', say: ['アプリは', ''] }] },
 ]
-const SCENARIO_HINTS = /京都|旅行|ポスター|還暦|誕生日|名前|ネーミング/
 const GENERIC_TOP = { id: 'gshape', words: [], top: true, icon: 'list', sections: [
   { key: 'gshape', q: 'どんな形で返しますか？', type: 'single', options: ['短い提案', '詳しい手順', '選択肢の比較'], def: '短い提案', say: ['欲しいのは', ''] }] }
-const STOP = new Set(['こと', 'もの', 'ため', 'よう', 'これ', 'それ', 'ところ', '感じ'])
-const segmenter = 'Segmenter' in Intl ? new Intl.Segmenter('ja', { granularity: 'word' }) : null
+const genericEntry = ({ surface: w }) => ({
+  id: 'g:' + w, words: [w], icon: 'tag', sections: [
+    { key: 'g:' + w, q: `「${w}」をどう扱う？`, type: 'single', options: ['前提にする', '詳しく聞いてほしい', '気にしない'], def: '前提にする', say: [`「${w}」は`, ''] }] })
 
-function keywordsOf(text) {
-  if (!segmenter) return []
-  const seen = new Set(), out = []
-  for (const s of segmenter.segment(text)) {
-    const w = s.segment
-    if (!s.isWordLike || w.length < 2 || STOP.has(w) || seen.has(w)) continue
-    if (!/^[\p{Script=Han}\p{Script=Katakana}ー]+$/u.test(w)) continue
-    seen.add(w); out.push({ w, index: s.index })
+/* ============ キーワード候補（Kuromoji） ============
+   Candidate = { surface, start, end, kind: 'proper' | 'compound' | 'noun' }（start/end は文字列の添字）
+   候補を取り出す extractCandidates と、順位を付ける rank は別々の純関数にしてある。
+   rank を外部の判定器に差し替えても、取り出す側は変わらない */
+const KUROMOJI = {
+  script: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js',
+  integrity: 'sha384-LCHxvFGxgpk9Bl+0+OaV6Rf24HQamJPrNHIo6VGkXkVgGWRvl68eqUwCW5PWqfwh',
+  dict: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/',
+}
+let tokenizer = null   // 辞書を読み終えるまでは null。その間は LEXICON だけで解析する
+
+function startKuromoji(onReady) {
+  const t0 = performance.now()
+  const giveUp = e => console.warn('[kuromoji] 辞書を読み込めなかったので、LEXICON の語だけで解析します', e)
+  document.head.append(h('script', {
+    src: KUROMOJI.script, integrity: KUROMOJI.integrity, crossorigin: 'anonymous',
+    onerror: () => giveUp('kuromoji.js を取得できませんでした'),
+    onload: () => kuromoji.builder({ dicPath: KUROMOJI.dict }).build((err, tk) => {
+      if (err) return giveUp(err)
+      tokenizer = tk
+      console.info(`[kuromoji] dictionary ready in ${Math.round(performance.now() - t0)} ms`)
+      onReady()
+    }),
+  }))
+}
+
+// 名詞の細分類ごとに、句の中での役割を決める表。ここに無いもの（代名詞・非自立・副詞可能など）は句を切る
+const NOUN_ROLE = { '固有名詞': 'proper', '一般': 'word', 'サ変接続': 'word', '数': 'number', '接尾': 'suffix' }
+
+// start は surface_form の長さを足して数える。word_position はコードポイント単位で、絵文字があると文字列の添字とずれる
+function extractCandidates(tokens) {
+  const out = [], seen = new Set()
+  let run = [], at = 0
+  const flush = () => {
+    const surface = run.map(t => t.surface).join('')
+    const words = run.filter(t => t.role === 'proper' || t.role === 'word')
+    if (words.length && surface.length >= 2 && !seen.has(surface)) {
+      seen.add(surface)
+      const start = run[0].start
+      out.push({ surface, start, end: start + surface.length, kind: words.some(t => t.role === 'proper') ? 'proper' : words.length > 1 ? 'compound' : 'noun' })
+    }
+    run = []
   }
+  for (const t of tokens) {
+    const role = t.pos === '名詞' ? NOUN_ROLE[t.pos_detail_1] : undefined
+    const tok = { role, surface: t.surface_form, start: at }
+    at += t.surface_form.length
+    if (role === 'suffix' && !run.length) continue   // 接尾辞は前の語に付くもので、句の頭にはならない
+    if (role) run.push(tok); else flush()
+  }
+  flush()
   return out
 }
 
+const KIND_RANK = { proper: 0, compound: 1, noun: 2 }
+// いまは種類と出現順だけで決める。text は、文脈を読む判定器に差し替えるときのために受け取っている
+function rank(candidates, text) {
+  return [...candidates].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.start - b.start)
+}
+
+function keywordCandidates(text) {
+  if (!tokenizer) return []
+  const t0 = performance.now()
+  const ranked = rank(extractCandidates(tokenizer.tokenize(text)), text)
+  console.debug(`[kuromoji] analyze ${(performance.now() - t0).toFixed(1)} ms`)
+  return ranked
+}
+
 /* ============ 前提の解析（Feedforward） ============
-   入力中の文から前提を見つける。モデルは呼ばず、常にこのローカルの規則だけで動く */
+   入力中の文から前提を見つける。モデルは呼ばず、常にこのローカルの規則だけで動く。
+   LEXICON の語を先に取り、空いている分（合計3つまで）を Kuromoji の候補で埋める */
+const MAX_ASSUMPTIONS = 3
 function analyze(text) {
   const hits = []
   for (const e of LEXICON) {
@@ -320,14 +378,14 @@ function analyze(text) {
     for (const w of e.words) { const i = text.indexOf(w); if (i >= 0 && (!best || i < best.start)) best = { start: i, end: i + w.length } }
     if (best) hits.push({ ...best, entry: e })
   }
-  if (!hits.length && !SCENARIO_HINTS.test(text) && text.trim().length >= 6) {
-    for (const k of keywordsOf(text).sort((a, b) => b.w.length - a.w.length).slice(0, 2)) {
-      hits.push({ start: k.index, end: k.index + k.w.length, entry: {
-        id: 'g:' + k.w, words: [k.w], icon: 'tag', sections: [
-          { key: 'g:' + k.w, q: `「${k.w}」をどう扱う？`, type: 'single', options: ['前提にする', '詳しく聞いてほしい', '気にしない'], def: '前提にする', say: [`「${k.w}」は`, ''] }] } })
-    }
-    if (text.trim().length >= 8) hits.push({ start: -1, end: -1, entry: GENERIC_TOP })
+  const len = text.trim().length, lexicon = hits.length
+  if (len >= 6) {
+    keywordCandidates(text)
+      .filter(c => !hits.some(m => c.start < m.end && m.start < c.end))
+      .slice(0, Math.max(0, MAX_ASSUMPTIONS - lexicon))
+      .forEach(c => hits.push({ start: c.start, end: c.end, entry: genericEntry(c) }))
   }
+  if (!lexicon && len >= 8) hits.push({ start: -1, end: -1, entry: GENERIC_TOP })
   hits.sort((a, b) => a.start - b.start)
   const out = []; let last = -1
   for (const m of hits) { if (m.start >= 0 && m.start < last) continue; out.push(m); if (m.start >= 0) last = m.end }
@@ -450,7 +508,7 @@ const SCRIPTS = {
     }
   },
   generic(text, d, quote) {
-    const kws = keywordsOf(quote || text).map(k => k.w).slice(0, 3)
+    const kws = keywordCandidates(quote || text).map(c => c.surface).slice(0, 3)
     const short = t => t.length > 18 ? t.slice(0, 18) + '…' : t
     return {
       blanks: {
@@ -818,7 +876,7 @@ function poster({ style, color, title, sub = '', date = '12.5 FRI 19:00', emph =
 /* ============ 付箋（人） ============ */
 function allSections(note) { return note.matches.flatMap(m => m.entry.sections) }
 function createNote({ x, y, text = '', quote = null }) {
-  const note = { kind: 'note', x, y, decisions: {}, touched: new Set(), matches: [], sent: false, quote }
+  const note = { kind: 'note', x, y, decisions: {}, touched: new Set(), matches: [], sent: false, composing: false, quote }
   const ta = h('textarea', { rows: 1, placeholder: quote ? 'ここについて聞きたいこと' : '何を考えますか？', 'aria-label': '付箋' })
   ta.value = text
   const mirror = h('div', { class: 'mirror', 'aria-hidden': 'true' })
@@ -839,8 +897,8 @@ function createNote({ x, y, text = '', quote = null }) {
     if (e.isComposing) return
     clearTimeout(timer); timer = setTimeout(() => analyzeNote(note), 260)
   })
-  ta.addEventListener('compositionstart', () => mirror.classList.add('stale'))
-  ta.addEventListener('compositionend', () => { clearTimeout(timer); timer = setTimeout(() => analyzeNote(note), 120) })
+  ta.addEventListener('compositionstart', () => { note.composing = true; mirror.classList.add('stale') })
+  ta.addEventListener('compositionend', () => { note.composing = false; clearTimeout(timer); timer = setTimeout(() => analyzeNote(note), 120) })
   ta.addEventListener('click', () => {
     if (note.sent || ta.selectionStart !== ta.selectionEnd) return
     const pos = ta.selectionStart
@@ -1141,6 +1199,8 @@ $('#add').append(icon('plus', 14), '付箋を追加')
 $('#add').onclick = () => addNoteAt('')
 document.querySelectorAll('[data-ex]').forEach(b => b.onclick = () => addNoteAt(EXAMPLES[b.dataset.ex]))
 pan.x = 0; pan.y = 0; applyPan()
+// 辞書を読み終えたら、書きかけの付箋を解析し直す。変換中の付箋は、確定後の解析に任せる
+startKuromoji(() => { for (const it of items) if (it.kind === 'note' && !it.sent && !it.composing) analyzeNote(it) })
 createNote({ x: Math.max(40, innerWidth * 0.08), y: 120, text: EXAMPLES.travel })
 const empty = createNote({ x: Math.max(40, innerWidth * 0.08), y: 400 })
 empty.ta.focus()
