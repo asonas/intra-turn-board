@@ -1,13 +1,36 @@
 import http from 'node:http'
 import { randomBytes } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { CAPS, extract, locateTranscript, modelJson as parseModelJson, prefilteredPrompt, validateInventory } from './inventory.mjs'
 
 /* ============ ホスト ============
    呼び出し元のエージェントごとに、CLI の引数の組み立てと標準出力の読み方を1か所に持つ。
-   どちらも ephemeral な fork なので、セッションの台帳や後片付けは要らない。 */
+   draft / continue は呼び出し元のセッションを fork する。どちらも ephemeral なので、セッションの台帳や後片付けは要らない。
+   inventory は会話に紐づかない別の呼び出しで、発話だけを渡して軽いモデルに在庫を作らせる (issue #2 の PL)。 */
+function parseClaude(stdout) {
+  const out = JSON.parse(stdout)
+  const result = Array.isArray(out) ? out.findLast(e => e.type === 'result') : out
+  if (!result || result.is_error) throw new Error(`Claude がエラーを返しました: ${result?.result ?? '応答がありません'}`)
+  const u = result.usage ?? {}
+  return {
+    value: modelJson(result.result),
+    cost_usd: result.total_cost_usd,
+    usage: { input_tokens: u.input_tokens, cache_read_input_tokens: u.cache_read_input_tokens, cache_creation_input_tokens: u.cache_creation_input_tokens, output_tokens: u.output_tokens },
+  }
+}
+// toValue は、agent_message の本文を値にする関数。draft / continue は --output-schema で JSON だけが返るが、inventory はスキーマ無しなのでコードフェンスを許す
+function parseCodex(stdout, toValue) {
+  const events = stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+  const message = events.findLast(e => e.type === 'item.completed' && e.item.type === 'agent_message')?.item.text
+  if (!message?.trim()) throw new Error('Codex の応答が空です')
+  return { value: toValue(message), usage: events.findLast(e => e.type === 'turn.completed')?.usage }
+}
+
 const HOSTS = {
   claude: {
     bin: 'claude',
@@ -21,16 +44,11 @@ const HOSTS = {
       section('出力の形式', 'スキーマに合う JSON オブジェクトを1つだけ返す。前置きや説明の文章、コードフェンスは付けない。'),
       section('JSON Schema', schema.json),
     ].join('\n\n'),
-    parse(stdout) {
-      const out = JSON.parse(stdout)
-      const result = Array.isArray(out) ? out.findLast(e => e.type === 'result') : out
-      if (!result || result.is_error) throw new Error(`Claude がエラーを返しました: ${result?.result ?? '応答がありません'}`)
-      const u = result.usage ?? {}
-      return {
-        value: modelJson(result.result),
-        cost_usd: result.total_cost_usd,
-        usage: { input_tokens: u.input_tokens, cache_read_input_tokens: u.cache_read_input_tokens, cache_creation_input_tokens: u.cache_creation_input_tokens, output_tokens: u.output_tokens },
-      }
+    parse: parseClaude,
+    inventory: {
+      model: 'sonnet',
+      argv: ({ model }) => ['-p', '--model', model, '--no-session-persistence', '--output-format', 'json', '--tools', '', '--strict-mcp-config'],
+      parse: parseClaude,
     },
   },
   codex: {
@@ -41,15 +59,19 @@ const HOSTS = {
       session, '-',
     ],
     prompt: stagePrompt => stagePrompt,
-    parse(stdout) {
-      const events = stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
-      const message = events.findLast(e => e.type === 'item.completed' && e.item.type === 'agent_message')?.item.text
-      if (!message?.trim()) throw new Error('Codex の応答が空です')
-      return { value: JSON.parse(message), usage: events.findLast(e => e.type === 'turn.completed')?.usage }
+    parse: stdout => parseCodex(stdout, JSON.parse),
+    inventory: {
+      model: 'gpt-6.2-sol',
+      argv: ({ model }) => [
+        '-a', 'never', 'exec', '-s', 'read-only', '--skip-git-repo-check', '--ephemeral', '--json', '-m', model,
+        '--ignore-user-config', '--ignore-rules', '-c', 'model_reasoning_effort="low"', '-',
+      ],
+      parse: stdout => parseCodex(stdout, modelJson),
     },
   },
 }
 
+const MODEL_NAME = /^[A-Za-z0-9][\w.:[\]-]{0,63}$/
 // 起動時の引数を検証して、以降は検証済みの値だけを使う
 function resolveConfig(argv, env) {
   let values
@@ -59,10 +81,11 @@ function resolveConfig(argv, env) {
   const session = values.session ?? (host === 'codex' ? env.CODEX_THREAD_ID : undefined)
   // 先頭が - の値は CLI のオプションとして解釈されるので通さない
   if (!session || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(session)) throw new Error('--session に呼び出し元のセッション ID を指定してください')
-  const model = env.INTRA_TURN_MODEL || undefined, effort = env.INTRA_TURN_EFFORT || undefined
-  if (model && !/^[A-Za-z0-9][\w.:[\]-]{0,63}$/.test(model)) throw new Error('INTRA_TURN_MODEL の値が不正です')
+  const model = env.INTRA_TURN_MODEL || undefined, effort = env.INTRA_TURN_EFFORT || undefined, inventoryModel = env.INTRA_TURN_INVENTORY_MODEL || undefined
+  if (model && !MODEL_NAME.test(model)) throw new Error('INTRA_TURN_MODEL の値が不正です')
   if (effort && !/^[a-z]{3,10}$/.test(effort)) throw new Error('INTRA_TURN_EFFORT の値が不正です')
-  return { host, session, model, effort }
+  if (inventoryModel && !MODEL_NAME.test(inventoryModel)) throw new Error('INTRA_TURN_INVENTORY_MODEL の値が不正です')
+  return { host, session, model, effort, inventoryModel }
 }
 
 /* ============ 入力と出力の検証 ============ */
@@ -73,11 +96,9 @@ const bad = message => new HttpError(400, message)
 // モデルの出力が形式を外れたとき。ボードには渡さず、画面に出せる文にして返す
 const invalid = message => new HttpError(502, `AI の出力が想定の形式ではありませんでした (${message})`)
 
-// コードフェンスや前後の空白を許して、最も外側の JSON オブジェクトを取り出す
+// コードフェンスや前後の空白を許して、最も外側の JSON オブジェクトを取り出す。形式を外れていたら、ボードに出せる文のエラーにする
 function modelJson(text) {
-  const first = typeof text === 'string' ? text.indexOf('{') : -1, last = typeof text === 'string' ? text.lastIndexOf('}') : -1
-  if (first < 0 || last < first) throw invalid('JSON オブジェクトが見つかりません')
-  try { return JSON.parse(text.slice(first, last + 1)) } catch { throw invalid('JSON として読めません') }
+  try { return parseModelJson(text) } catch (error) { throw invalid(error.message) }
 }
 
 const KEY = /^[a-z][a-z0-9_]{0,31}$/
@@ -205,10 +226,9 @@ const STAGES = {
 }
 
 /* ============ モデル呼び出し ============ */
-function invoke(config, stagePrompt, schema, signal) {
-  const { bin, argv, prompt, parse } = HOSTS[config.host]
-  // resume は作業ディレクトリのプロジェクトからセッションを探すので、呼び出し元と同じ cwd で起動する
-  const child = spawn(bin, argv({ ...config, schema }), { signal, cwd: process.cwd(), stdio: ['pipe', 'pipe', 'inherit'] })
+function run(host, { argv, cwd, env, input, parse, signal }) {
+  const { bin } = HOSTS[host]
+  const child = spawn(bin, argv, { signal, cwd, env, stdio: ['pipe', 'pipe', 'inherit'] })
   const done = new Promise((resolve, reject) => {
     let stdout = ''
     child.stdout.setEncoding('utf8').on('data', part => { stdout += part })
@@ -219,12 +239,56 @@ function invoke(config, stagePrompt, schema, signal) {
       if (code === 0 && !failure) { resolve(result); return }
       // JSON として読めなかった (SyntaxError) 場合は CLI が落ちただけなので、CLI 側の失敗として伝える
       const told = failure && !(failure instanceof SyntaxError)
-      reject(new Error(told ? failure.message : code !== 0 ? `${config.host} が終了コード ${code} で失敗しました` : `${config.host} の出力を読めませんでした`))
+      reject(new Error(told ? failure.message : code !== 0 ? `${host} が終了コード ${code} で失敗しました` : `${host} の出力を読めませんでした`))
     })
   })
   child.stdin.on('error', () => {})
-  child.stdin.end(prompt(stagePrompt, schema))
+  child.stdin.end(input)
   return done
+}
+
+function invoke(config, stagePrompt, schema, signal) {
+  const { argv, prompt, parse } = HOSTS[config.host]
+  // resume は作業ディレクトリのプロジェクトからセッションを探すので、呼び出し元と同じ cwd で起動する
+  return run(config.host, { argv: argv({ ...config, schema }), cwd: process.cwd(), input: prompt(stagePrompt, schema), parse, signal })
+}
+
+/* ============ 在庫 ============
+   起動時に1回だけ、呼び出し元の会話の発話から作る。ボードも draft / continue も待たない。
+   状態は pending → ready | empty | failed の一方向で、終わったら変わらない。GET /inventory はこの値をそのまま返す。
+   pending の外へ出る道は buildInventory の返り値だけにして、途中の状態を別の変数に持たない。 */
+const INVENTORY_TIMEOUT_MS = 300000
+// 会話の無いディレクトリで動かす。呼び出し元の cwd だと、CLI がそのプロジェクトの AGENTS.md や CLAUDE.md を読み込み、在庫の指示と混ざる
+const NEUTRAL_CWD = join(tmpdir(), 'intra-turn-board')
+
+async function invokeInventory(config, conversation, signal) {
+  const { argv, parse, model } = HOSTS[config.host].inventory
+  await mkdir(NEUTRAL_CWD, { recursive: true })
+  // 子の claude / codex が、呼び出し元の Agent Board (HC_TERMINAL_ID) に自分の作業を書かないようにする
+  const { HC_TERMINAL_ID, ...env } = process.env
+  return run(config.host, { argv: argv({ model: config.inventoryModel ?? model }), cwd: NEUTRAL_CWD, env, input: prefilteredPrompt(conversation), parse, signal })
+}
+
+async function buildInventory(config, signal) {
+  const start = Date.now()
+  const log = entry => console.log(JSON.stringify({ stage: 'inventory', host: config.host, ms: Date.now() - start, ...entry }))
+  try {
+    // 会話をまだ始めていないセッションには記録が無いことがあり、それはエラーではない
+    const path = await locateTranscript(config.host, config.session)
+    const conversation = path ? extract(config.host, await readFile(path, 'utf8')) : ''
+    if (!conversation) { log({ empty: path ? '発話がありません' : '会話の記録が見つかりません' }); return { state: 'empty' } }
+    const { value, usage, cost_usd } = await invokeInventory(config, conversation, signal)
+    const errors = validateInventory(value)
+    if (errors.length) throw invalid(errors.slice(0, 3).join(' / '))
+    // モデルは上限を超えることがあるので、指示した件数で切る。どちらも重要な順に並べさせている
+    const inventory = { open: value.open.slice(0, CAPS.open), facts: value.facts.slice(0, CAPS.facts) }
+    log({ ...(cost_usd != null && { cost_usd }), usage, open: value.open.length, facts: value.facts.length })
+    return { state: 'ready', inventory, ms: Date.now() - start }
+  } catch (error) {
+    const message = error.name === 'AbortError' ? `${INVENTORY_TIMEOUT_MS / 1000}秒以内に在庫を作れませんでした` : error.message
+    log({ error: message })
+    return { state: 'failed', error: message }
+  }
 }
 
 async function runStage(config, schemas, stage, body, signal) {
@@ -255,6 +319,9 @@ async function main() {
     schemas[name] = { path, json: JSON.stringify(JSON.parse(await readFile(path, 'utf8'))) }
   }
 
+  let inventory = { state: 'pending' }
+  const building = new AbortController()
+
   const server = http.createServer(async (req, res) => {
     const origin = 'http://127.0.0.1:' + server.address().port
     const url = new URL(req.url, origin)
@@ -266,6 +333,9 @@ async function main() {
     }
     if (req.method === 'GET' && url.pathname === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(page); return
+    }
+    if (req.method === 'GET' && url.pathname === '/inventory') {
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(inventory)); return
     }
     if (req.method !== 'POST' || req.headers.origin !== origin) {
       res.writeHead(403).end(); return
@@ -291,6 +361,12 @@ async function main() {
       res.writeHead(error.status ?? 502, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: message }))
     }
   })
-  server.listen(0, '127.0.0.1', () => console.log('http://127.0.0.1:' + server.address().port + '/?t=' + token))
+  // 終了するときは、作りかけの在庫の子プロセスも止める
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { building.abort(); process.kill(process.pid, signal) })
+
+  server.listen(0, '127.0.0.1', () => {
+    console.log('http://127.0.0.1:' + server.address().port + '/?t=' + token)
+    buildInventory(config, AbortSignal.any([building.signal, AbortSignal.timeout(INVENTORY_TIMEOUT_MS)])).then(state => { inventory = state })
+  })
 }
 await main()

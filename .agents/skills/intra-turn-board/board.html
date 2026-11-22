@@ -156,6 +156,9 @@ header.bar h1{font-size:18px;margin:0 12px 0 4px;font-weight:700;letter-spacing:
 .other{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:3px 12px 3px 8px;font-size:13px;color:var(--sub);margin-top:8px}
 .other-input{margin-top:8px;width:100%;font:inherit;font-size:13px;border:1px solid #b8c2d8;border-radius:8px;padding:5px 10px;outline:none}
 .other-input:focus{border-color:var(--accent)}
+.free{display:flex;align-items:center;gap:6px}
+.free .other-input{margin-top:0;width:auto;flex:1;min-width:0}
+.free .unit{font-size:13px;color:var(--sub)}
 .map{position:relative;height:170px;width:280px;border-radius:10px;background-color:#f7f8fb;background-image:radial-gradient(#d5dbe6 1px,transparent 1.2px);background-size:10px 10px}
 .map .chip{position:absolute;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
 .map .chip::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
@@ -367,9 +370,38 @@ function keywordCandidates(text) {
   return ranked
 }
 
+/* ============ 在庫（会話の未決の論点） ============
+   サーバーが起動時に会話から作る。届くまでボードは在庫なしで動き、届いたら書きかけの付箋を解析し直す。
+   いま使うのは open だけで、facts はまだ使わない (#4)。file:// の見本には在庫が無い */
+let inventory = null   // 届いたら { open: [...], facts: [...] }
+
+// 暫定の対応づけ。#3 で Jev の判定に置き換える。
+// surfaces の語ごとに、topic と語のどちらかがもう一方を含む論点のうち、先の語がまだ取っていない最初のものの添字を返す。無ければ -1
+function matchInventory(surfaces, open) {
+  const taken = new Set()
+  return surfaces.map(s => {
+    const i = open.findIndex((o, k) => !taken.has(k) && (o.topic.includes(s) || s.includes(o.topic)))
+    if (i >= 0) taken.add(i)
+    return i
+  })
+}
+
+// 在庫の論点を、下線に結ぶ前提の項目にする。会話では未決なので def は置かない (選ぶまでは前提として送らない)。
+// single / chips はそのまま、range と text は自由入力 (range の options は単位だけ)
+function inventoryEntry(item, index) {
+  const free = item.widget === 'range' || item.widget === 'text'
+  const sec = { key: 'inv:' + index, q: item.question, say: [`${item.topic}は`, ''] }
+  Object.assign(sec, free
+    ? { type: 'free', unit: item.widget === 'range' ? item.options[0] : undefined }
+    : { type: item.widget, options: item.options, multi: item.multiple, hint: item.multiple ? '複数可' : null })
+  return { id: 'inv:' + index, words: [item.topic], icon: 'tag', sections: [sec] }
+}
+const isDecided = (note, sec) => note.decisions[sec.key] !== undefined
+
 /* ============ 前提の解析（Feedforward） ============
    入力中の文から前提を見つける。モデルは呼ばず、常にこのローカルの規則だけで動く。
-   LEXICON の語を先に取り、空いている分（合計3つまで）を Kuromoji の候補で埋める */
+   LEXICON の語を先に取り、空いている分（合計3つまで）を Kuromoji の候補で埋める。
+   候補が在庫の論点に当たれば、一般的な問いの代わりに在庫の問いを開く。LEXICON の語は在庫に置き換えない */
 const MAX_ASSUMPTIONS = 3
 function analyze(text) {
   const hits = []
@@ -380,10 +412,14 @@ function analyze(text) {
   }
   const len = text.trim().length, lexicon = hits.length
   if (len >= 6) {
-    keywordCandidates(text)
-      .filter(c => !hits.some(m => c.start < m.end && m.start < c.end))
+    const open = inventory?.open ?? []
+    const candidates = keywordCandidates(text).filter(c => !hits.some(m => c.start < m.end && m.start < c.end))
+    const matched = matchInventory(candidates.map(c => c.surface), open)
+    // 上限があるので、会話から来た問いに当たる語を、一般的な問いの語より先に使う
+    candidates.map((c, i) => ({ c, item: matched[i] }))
+      .sort((a, b) => (b.item >= 0) - (a.item >= 0))
       .slice(0, Math.max(0, MAX_ASSUMPTIONS - lexicon))
-      .forEach(c => hits.push({ start: c.start, end: c.end, entry: genericEntry(c) }))
+      .forEach(({ c, item }) => hits.push({ start: c.start, end: c.end, entry: item >= 0 ? inventoryEntry(open[item], item) : genericEntry(c) }))
   }
   if (!lexicon && len >= 8) hits.push({ start: -1, end: -1, entry: GENERIC_TOP })
   hits.sort((a, b) => a.start - b.start)
@@ -720,10 +756,10 @@ function drawLinks() {
 
 /* ============ ポップオーバー ============ */
 const pop = $('#pop')
-let popCtx = null
-function openPop(anchor, sections, get, set) {
-  closePop()
-  const ctx = popCtx = { anchor }
+let popCtx = null   // { anchor, note }。note はそのポップオーバーを開いている付箋 (返事の空欄なら null)
+function openPop(anchor, sections, get, set, note = null) {
+  hidePop()   // 開き直すだけなので、待たせている解析し直しは流さない。anchor が作り直されてしまう
+  const ctx = popCtx = { anchor, note }
   pop.innerHTML = ''
   for (const sec of sections) {
     const now = sec.type === 'range' ? h('span', { class: 'now' }, fmt(sec, get(sec.key))) : null
@@ -742,8 +778,25 @@ function openPop(anchor, sections, get, set) {
   let top = r.bottom + 8
   if (top + ph > innerHeight - 12) top = Math.max(12, r.top - ph - 8)
   pop.style.left = left + 'px'; pop.style.top = top + 'px'
+  flushRefresh()
 }
-function closePop() { if (!pop.hidden) { pop.hidden = true; pop.innerHTML = ''; popCtx = null } }
+function hidePop() { if (!pop.hidden) { pop.hidden = true; pop.innerHTML = ''; popCtx = null } }
+function closePop() { hidePop(); flushRefresh() }
+
+// 辞書や在庫が届いたとき、書きかけの付箋を解析し直す。変換中の付箋は確定後の解析に任せる。
+// ポップオーバーが開いている付箋は、選んでいる最中に問いが変わらないよう、閉じるまで待たせる
+const refreshLater = new Set()
+function flushRefresh() {
+  for (const note of refreshLater) {
+    if (popCtx?.note === note) continue
+    refreshLater.delete(note)
+    if (!note.sent && !note.composing) analyzeNote(note)
+  }
+}
+function refreshNotes() {
+  for (const it of items) if (it.kind === 'note' && !it.sent && !it.composing) refreshLater.add(it)
+  flushRefresh()
+}
 // ポップオーバー内のボタンを押しても、付箋のキャレットを失わない
 pop.addEventListener('pointerdown', e => { if (!e.target.closest('input')) e.preventDefault() })
 document.addEventListener('pointerdown', e => {
@@ -863,6 +916,18 @@ const WIDGETS = {
     const pad = h('div', { class: 'pad' }, h('span', { style: 'grid-column:2;grid-row:1' }, '短く'), h('span', { style: 'grid-column:1;grid-row:2' }, 'からかう'), area, h('span', { style: 'grid-column:3;grid-row:2' }, 'しみじみ'), h('span', { style: 'grid-column:2;grid-row:3' }, '長めに'))
     return h('div', {}, pad, preview)
   },
+  // 在庫の range / text。候補は無く、自由入力だけ。unit があれば入力の横に置き、数字で終わる入力には付けて保存する
+  free(sec, get, set) {
+    const unit = sec.unit, now = String(get() ?? '')
+    const input = h('input', { class: 'other-input', 'aria-label': sec.q, value: unit && now.endsWith(unit) ? now.slice(0, -unit.length) : now })
+    input.onkeydown = e => {
+      const v = input.value.trim()
+      if (e.key !== 'Enter' || e.isComposing || !v) return
+      set(unit && /[0-9０-９]$/.test(v) ? v + unit : v, { close: true })
+    }
+    requestAnimationFrame(() => input.focus())
+    return h('div', { class: 'free' }, input, unit ? h('span', { class: 'unit' }, unit) : null)
+  },
 }
 
 function poster({ style, color, title, sub = '', date = '12.5 FRI 19:00', emph = '大きく', thumb = false }) {
@@ -915,11 +980,11 @@ function createNote({ x, y, text = '', quote = null }) {
 function openNotePop(note, anchor, sections) {
   openPop(anchor, sections, k => note.decisions[k], (k, v) => {
     note.decisions[k] = v; note.touched.add(k); renderMirror(note); renderAssume(note)
-  })
+  }, note)
 }
 function analyzeNote(note) {
   note.matches = adapter.analyze(note.ta.value)
-  for (const s of allSections(note)) if (!(s.key in note.decisions)) note.decisions[s.key] = s.def
+  for (const s of allSections(note)) if (s.def !== undefined && !(s.key in note.decisions)) note.decisions[s.key] = s.def
   renderMirror(note); renderAssume(note)
 }
 const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
@@ -934,9 +999,9 @@ function renderMirror(note) {
   note.mirror.innerHTML = html + esc(t.slice(i)) + ' '
   note.mirror.classList.remove('stale')
 }
-// 送る前は、いちばん大きな前提だけを付箋の上に出す
+// 送る前は、いちばん大きな前提だけを付箋の上に出す。在庫の論点は選ぶまで前提ではないので、決まったものだけ
 function renderAssume(note) {
-  const m = note.matches.find(m => m.entry.top) || note.matches[0]
+  const m = note.matches.find(m => m.entry.top) || note.matches.find(m => m.entry.sections.every(s => isDecided(note, s)))
   if (!m || note.sent) { note.assume.hidden = true; return }
   const sec = m.entry.sections[0]
   const val = h('button', { class: 'val', type: 'button' }, fmt(sec, note.decisions[sec.key]))
@@ -1006,7 +1071,7 @@ async function runCard(card) {
   card.foot.className = 'cfoot'; card.foot.textContent = ''
   if (!card.skel.isConnected) card.body.prepend(card.skel)
   setNoteStatus(note, 'thinking', '考えています')
-  const lines = note.matches.flatMap(m => m.entry.sections.map(s => [m.entry.icon, s]))
+  const lines = note.matches.flatMap(m => m.entry.sections.map(s => [m.entry.icon, s])).filter(([, s]) => isDecided(note, s))
   const assumptions = lines.map(([, s]) => s.say[0] + fmt(s, note.decisions[s.key]) + s.say[1])
   try {
     card.plan = await adapter.compose(note.ta.value, note.decisions, note.quote, assumptions)
@@ -1199,8 +1264,27 @@ $('#add').append(icon('plus', 14), '付箋を追加')
 $('#add').onclick = () => addNoteAt('')
 document.querySelectorAll('[data-ex]').forEach(b => b.onclick = () => addNoteAt(EXAMPLES[b.dataset.ex]))
 pan.x = 0; pan.y = 0; applyPan()
-// 辞書を読み終えたら、書きかけの付箋を解析し直す。変換中の付箋は、確定後の解析に任せる
-startKuromoji(() => { for (const it of items) if (it.kind === 'note' && !it.sent && !it.composing) analyzeNote(it) })
+// 辞書を読み終えたら、書きかけの付箋を解析し直す
+startKuromoji(refreshNotes)
+
+// サーバーが会話から在庫を作っている間、2秒おきに尋ねる。ready で書きかけの付箋を解析し直し、
+// empty / failed でもボードはそのまま動くので、何も出さずにやめる。file:// の見本には在庫が無い
+async function pollInventory() {
+  for (;;) {
+    let r
+    try {
+      const res = await fetch('/inventory' + location.search)
+      if (!res.ok) return
+      r = await res.json()
+    } catch { return }
+    if (r.state === 'pending') { await sleep(2000); continue }
+    console.info(`[inventory] ${r.state}`)
+    if (r.state === 'ready') { inventory = r.inventory; refreshNotes() }
+    return
+  }
+}
+if (location.protocol !== 'file:') pollInventory()
+
 createNote({ x: Math.max(40, innerWidth * 0.08), y: 120, text: EXAMPLES.travel })
 const empty = createNote({ x: Math.max(40, innerWidth * 0.08), y: 400 })
 empty.ta.focus()
